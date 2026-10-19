@@ -12,7 +12,7 @@ class TestAPIAuthenticationHTTP(unittest.TestCase):
 
     def setUp(self):
         self.original_app_config = dict(config.app)
-        self.client = TestClient(asgi.app)
+        self.client = TestClient(asgi.app, base_url="http://localhost")
 
     def tearDown(self):
         config.app.clear()

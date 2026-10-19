@@ -7,8 +7,11 @@
 # =============================================================================
 # Log level: DEBUG, INFO, WARNING, or ERROR.
 log_level = "DEBUG"
-# Use 127.0.0.1 for local-only access. 0.0.0.0 listens on all network interfaces.
-listen_host = "0.0.0.0"
+# 127.0.0.1 (default) accepts local connections only. 0.0.0.0 listens on all
+# network interfaces; in that case also set app.api_key, because while api_key
+# is empty the API only accepts requests whose Host is localhost / 127.0.0.1.
+# Docker overrides this with the MPT_LISTEN_HOST environment variable.
+listen_host = "127.0.0.1"
 listen_port = 8080
 
 [app]
@@ -24,6 +27,13 @@ listen_port = 8080
 # 任务产物下载同样需要该请求头；浏览器地址栏无法附加自定义请求头，启用鉴权后
 # 应由 API 客户端携带请求头下载。
 api_key = ""
+
+# Extra host names accepted while api_key is empty (for example a LAN hostname
+# or IP of this machine). Also configurable through the comma-separated
+# MPT_ALLOWED_HOSTS environment variable. "*" disables the check (not
+# recommended: any device on the network and any website using DNS rebinding
+# could then call the API and spend your paid API credits).
+# allowed_hosts = ["192.168.1.10"]
 
 # -----------------------------------------------------------------------------
 # General / 通用设置
@@ -430,6 +440,14 @@ endpoint = ""
 # Example: material_directory = "/path/to/videos"
 material_directory = ""
 
+# When a keyword returns fewer than 3 videos in the requested orientation, also search the
+# other orientation and crop/pad it (per video_fit_mode). Reduces repeated footage.
+material_orientation_fallback = true
+
+# Seconds of title cover prepended to videos made by the Telegram bot / batch presets.
+# The cover also hides any black frames at the start. 0 disables it.
+cover_intro_seconds = 1.0
+
 # Optional Redis-backed task state. Keep Redis private to this application;
 # untrusted writers must not be able to modify serialized task records.
 enable_redis = false
@@ -642,3 +660,41 @@ open_task_folder_on_completion = true
 # subtitle_background_enabled = false
 # subtitle_background_color = "#000000"
 # rounded_subtitle_background = false
+
+[telegram]
+# Bot Telegram tạo video (chạy telegram_bot.bat hoặc `python telegram_bot.py`).
+# high_model, default_language, voices, default_duration dùng chung cho bot và chế độ
+# "Tạo nhanh" của WebUI (app/services/quick_create.py). Bot đọc lại config.toml trước mỗi
+# yêu cầu, nên thiết lập chỉnh trên WebUI có hiệu lực ngay, không cần khởi động lại bot.
+# Lấy token từ @BotFather. Có thể đặt qua biến môi trường TELEGRAM_BOT_TOKEN thay vì ghi ở đây.
+bot_token = ""
+# Chỉ các user ID này được dùng bot. Người khác có thể bấm "Gửi yêu cầu cấp quyền";
+# admin duyệt ngay trong Telegram, danh sách duyệt lưu ở storage/telegram_access.json.
+allowed_user_ids = []
+# Admin nhận yêu cầu cấp quyền và dùng /nguoidung, /thuhoi. Bỏ trống = các user trong allowed_user_ids.
+admin_user_ids = []
+# Proxy riêng cho bot khi proxy mặc định của máy chặn api.telegram.org.
+# Bỏ trống = dùng proxy hệ thống (biến môi trường HTTPS_PROXY).
+# proxy = "http://10.0.0.1:8800"
+# Model OpenAI cho yêu cầu có #high (ví dụ /kienthuc ... #high); các yêu cầu khác dùng
+# [app].openai_model_name. Chỉ áp dụng khi llm_provider = "openai".
+# high_model = "gpt-6.1-sol"
+# Ngôn ngữ mặc định của video: "vi-VN" hoặc "en-US" (lời đọc tiếng Anh, phụ đề dịch sang
+# tiếng Việt). Mỗi người đổi riêng bằng /ngonngu, hoặc thêm #en / #vi vào từng yêu cầu.
+default_language = "vi-VN"
+# Đổi giọng đọc theo ngôn ngữ. Mặc định: tiếng Việt dùng [ui].voice_name (nếu đó là giọng
+# ngôn ngữ khác thì dùng vi-VN-HoaiMyNeural-Female), tiếng Anh dùng en-US-AriaNeural-Female.
+# voices = { "en-US" = "en-US-GuyNeural-Male" }
+# Thời lượng mặc định (giây, 15–180) cho mọi video từ bot. 0 = dùng mặc định của từng loại nội dung.
+# Mỗi người dùng có thể đổi riêng bằng lệnh /thoiluong.
+default_duration = 0
+
+[social]
+# Đăng video lên Facebook Reels, TikTok, YouTube Shorts (web: Tạo nhanh > Đăng bài; bot: /dangnhap,
+# /dang, /lichdang, /tudongdang). Dùng Chrome/Edge có sẵn với profile riêng, điều khiển qua CDP:
+# lần đầu bấm "Mở trình duyệt để đăng nhập" (hoặc /dangnhap) và đăng nhập các trang một lần.
+# Lịch, khung giờ và bật/tắt đăng tự động lưu ở storage/social (chỉnh trên web hoặc bot).
+# browser_path = ""   # bỏ trống: tự tìm Chrome, rồi Edge
+# cdp_port = 9333
+# profile_dir = ""    # bỏ trống: storage/social/browser_profile
+# proxy = ""          # bỏ trống: dùng proxy hệ thống của Windows

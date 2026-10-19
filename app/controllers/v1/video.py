@@ -241,7 +241,7 @@ def create_task(
 def get_all_tasks(
     request: Request,
     page: int = Query(1, ge=1),
-    page_size: int = Query(10, ge=1),
+    page_size: int = Query(10, ge=1, le=100),
 ):
     tasks, total = sm.state.get_all_tasks(page, page_size)
 

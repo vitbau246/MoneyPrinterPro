@@ -20,5 +20,8 @@ services:
     ports:
       - "127.0.0.1:8080:8080"
     command: [ "python3", "main.py" ]
+    # 容器内必须监听全部网卡，宿主机端口映射仍只绑定 127.0.0.1。
+    environment:
+      MPT_LISTEN_HOST: "0.0.0.0"
     volumes: *common-volumes
     restart: always

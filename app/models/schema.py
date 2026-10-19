@@ -88,6 +88,14 @@ class MaterialInfo:
     source_info: Optional[dict[str, Any]] = None
 
 
+# API 请求参数上限，防止单个请求耗尽内存、CPU 或付费 API 额度。
+MAX_VIDEO_SUBJECT_LENGTH = 1000
+MAX_VIDEO_SCRIPT_LENGTH = 20000
+MAX_VIDEO_COUNT = 50
+MAX_FONT_SIZE = 300
+MAX_STROKE_WIDTH = 50.0
+
+
 class VideoParams(BaseModel):
     """
     {
@@ -103,22 +111,26 @@ class VideoParams(BaseModel):
     }
     """
 
-    video_subject: str
-    video_script: str = ""  # Script used to generate the video
+    # 以下上限只用于拦截明显异常的请求（例如超大字号导致内存耗尽、超大数量
+    # 消耗付费额度），均明显宽于 WebUI 与 CLI 的常规取值范围。
+    video_subject: str = Field(max_length=MAX_VIDEO_SUBJECT_LENGTH)
+    video_script: str = Field(
+        default="", max_length=MAX_VIDEO_SCRIPT_LENGTH
+    )  # Script used to generate the video
     video_terms: Optional[str | list] = None  # Keywords used to generate the video
     video_aspect: Optional[VideoAspect] = VideoAspect.portrait.value
     video_fit_mode: VideoFitMode = VideoFitMode.cover
     video_concat_mode: Optional[VideoConcatMode] = VideoConcatMode.random.value
     video_transition_mode: Optional[VideoTransitionMode] = None
-    video_clip_duration: int = Field(default=5, ge=1)
+    video_clip_duration: int = Field(default=5, ge=1, le=60)
     video_clip_speed: Optional[float] = 1.0
     match_materials_to_script: bool = False
-    video_count: int = Field(default=1, ge=1)
+    video_count: int = Field(default=1, ge=1, le=MAX_VIDEO_COUNT)
 
     video_source: Optional[str] = "pexels"
-    video_materials: Optional[List[MaterialInfo]] = (
-        None  # Materials used to generate the video
-    )
+    video_materials: Optional[List[MaterialInfo]] = Field(
+        default=None, max_length=500
+    )  # Materials used to generate the video
 
     custom_audio_file: Optional[str] = (
         None  # Custom audio file path, will ignore TTS and can still use Whisper subtitles
@@ -137,6 +149,9 @@ class VideoParams(BaseModel):
     sonilo_bgm_prompt: str = Field(default="", max_length=2000)
 
     subtitle_enabled: Optional[bool] = True
+    # Ngôn ngữ phụ đề, ví dụ "vi-VN". Khác ngôn ngữ lời đọc (video_language) thì
+    # phụ đề được AI dịch sang ngôn ngữ này, giữ nguyên thời gian từng dòng.
+    subtitle_language: Optional[str] = ""
     subtitle_position: Optional[str] = config.ui.get(
         "subtitle_position", "bottom"
     )  # top, bottom, center, custom, two_thirds_bottom
@@ -152,17 +167,22 @@ class VideoParams(BaseModel):
     text_background_color: Union[bool, str] = False
     rounded_subtitle_background: bool = False
 
-    font_size: int = 60
+    font_size: int = Field(default=60, ge=1, le=MAX_FONT_SIZE)
     stroke_color: Optional[str] = "#000000"
-    stroke_width: float = 1.5
-    n_threads: Optional[int] = 2
+    stroke_width: float = Field(default=1.5, ge=0, le=MAX_STROKE_WIDTH)
+    n_threads: Optional[int] = Field(default=2, ge=1, le=64)
     paragraph_number: int = Field(default=1, ge=1, le=10)
     video_script_prompt: str = Field(default="", max_length=2000)
     custom_system_prompt: str = Field(default="", max_length=8000)
+    # Ảnh cover ghép vào đầu video thành phẩm. Để trống cover_title hoặc
+    # cover_intro_seconds = 0 thì không tạo cover (mặc định của WebUI/API).
+    cover_title: str = Field(default="", max_length=200)
+    cover_label: str = Field(default="", max_length=50)
+    cover_intro_seconds: float = Field(default=0.0, ge=0, le=5)
 
 
 class SubtitleRequest(BaseModel):
-    video_script: str
+    video_script: str = Field(max_length=MAX_VIDEO_SCRIPT_LENGTH)
     video_language: Optional[str] = ""
     voice_name: Optional[str] = "zh-CN-XiaoxiaoNeural-Female"
     voice_volume: Optional[float] = 1.0
@@ -181,15 +201,15 @@ class SubtitleRequest(BaseModel):
     text_fore_color: Optional[str] = "#FFFFFF"
     text_background_color: Union[bool, str] = False
     rounded_subtitle_background: bool = False
-    font_size: int = 60
+    font_size: int = Field(default=60, ge=1, le=MAX_FONT_SIZE)
     stroke_color: Optional[str] = "#000000"
-    stroke_width: float = 1.5
+    stroke_width: float = Field(default=1.5, ge=0, le=MAX_STROKE_WIDTH)
     video_source: Optional[str] = "local"
     subtitle_enabled: Optional[str] = "true"
 
 
 class AudioRequest(BaseModel):
-    video_script: str
+    video_script: str = Field(max_length=MAX_VIDEO_SCRIPT_LENGTH)
     video_language: Optional[str] = ""
     voice_name: Optional[str] = "zh-CN-XiaoxiaoNeural-Female"
     voice_volume: Optional[float] = 1.0
@@ -211,7 +231,9 @@ class VideoScriptParams:
     }
     """
 
-    video_subject: Optional[str] = "春天的花海"
+    video_subject: Optional[str] = Field(
+        default="春天的花海", max_length=MAX_VIDEO_SUBJECT_LENGTH
+    )
     video_language: Optional[str] = ""
     paragraph_number: int = Field(default=1, ge=1, le=10)
     video_script_prompt: str = Field(default="", max_length=2000)
@@ -228,11 +250,14 @@ class VideoTermsParams:
     }
     """
 
-    video_subject: Optional[str] = "春天的花海"
-    video_script: Optional[str] = (
-        "春天的花海，如诗如画般展现在眼前。万物复苏的季节里，大地披上了一袭绚丽多彩的盛装。金黄的迎春、粉嫩的樱花、洁白的梨花、艳丽的郁金香……"
+    video_subject: Optional[str] = Field(
+        default="春天的花海", max_length=MAX_VIDEO_SUBJECT_LENGTH
     )
-    amount: Optional[int] = 5
+    video_script: Optional[str] = Field(
+        default="春天的花海，如诗如画般展现在眼前。万物复苏的季节里，大地披上了一袭绚丽多彩的盛装。金黄的迎春、粉嫩的樱花、洁白的梨花、艳丽的郁金香……",
+        max_length=MAX_VIDEO_SCRIPT_LENGTH,
+    )
+    amount: Optional[int] = Field(default=5, ge=1, le=50)
     match_materials_to_script: bool = False
 
 

@@ -60,9 +60,18 @@ from app.services import elevenlabs_music as elevenlabs_music_service
 from app.services import sonilo as sonilo_service
 from app.services import state as sm
 from app.services import task as tm
-from app.services import version_checker
 from app.utils.logging_utils import configure_terminal_logger
 from app.utils import utils
+from app.services import social_schedule
+from webui import quick_page
+
+# Vòng đăng Facebook/TikTok/YouTube theo lịch (dùng chung với bot; mỗi lúc chỉ một
+# tiến trình chạy). Gọi lại ở mỗi lần rerun không tạo thêm luồng.
+social_schedule.start_runner()
+
+# Bản này không kết nối GitHub (không kiểm tra phiên bản, không cập nhật qua git);
+# chỉ ghi lại nguồn mã gốc.
+PROJECT_SOURCE_URL = "https://github.com/harry0703/MoneyPrinterTurbo"
 
 st.set_page_config(
     page_title="MoneyPrinterTurbo",
@@ -70,11 +79,11 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="auto",
     menu_items={
-        "Report a bug": "https://github.com/harry0703/MoneyPrinterTurbo/issues",
+        "Report a bug": None,
         "About": "# MoneyPrinterTurbo\nSimply provide a topic or keyword for a video, and it will "
         "automatically generate the video copy, video materials, video subtitles, "
         "and video background music before synthesizing a high-definition short "
-        "video.\n\nhttps://github.com/harry0703/MoneyPrinterTurbo",
+        "video.\n\nNguồn mã gốc: `" + PROJECT_SOURCE_URL + "`",
     },
 )
 
@@ -1628,48 +1637,18 @@ def _open_material_settings_dialog():
     _open_settings_dialog("material")
 
 
-def _render_brand(available_update: str | None = None):
-    """渲染项目名称、当前版本和可选的更新入口。"""
-    update_link = ""
-    if available_update:
-        update_label = html.escape(
-            tr("Update Available").format(version=available_update)
-        )
-        # Streamlit 会继续用 Markdown 解析传入的 HTML。这里保持链接为单行，
-        # 避免多行字符串的缩进被识别成代码块，导致页面直接显示 HTML 源码。
-        update_link = (
-            '<a class="mpt-brand__update" '
-            f'href="{version_checker.LATEST_RELEASE_PAGE_URL}" '
-            'target="_blank" rel="noopener noreferrer" '
-            f'aria-label="{update_label}" title="{update_label}">'
-            f"{update_label}</a>"
-        )
+def _render_brand():
+    """Tên dự án và phiên bản. Bản này không kết nối GitHub; chỉ ghi nguồn mã gốc."""
     st.markdown(
         f"""
         <h1 class="mpt-brand">
             <span class="mpt-brand__name">MoneyPrinterTurbo</span>
-            <a class="mpt-brand__version"
-               href="https://github.com/harry0703/MoneyPrinterTurbo"
-               target="_blank"
-               rel="noopener noreferrer"
-               aria-label="Open MoneyPrinterTurbo on GitHub"
-               title="Open project on GitHub">v{html.escape(str(config.project_version))}</a>
-            {update_link}
+            <span class="mpt-brand__version"
+                  title="Nguồn: {PROJECT_SOURCE_URL}">v{html.escape(str(config.project_version))}</span>
         </h1>
         """,
         unsafe_allow_html=True,
     )
-
-
-@st.fragment(run_every="1s")
-def _render_pending_version_check():
-    """检查未完成时只刷新品牌区域，避免阻塞或反复执行整页表单。"""
-    snapshot = version_checker.poll_available_update(config.project_version)
-    if snapshot.complete:
-        # 检查完成后刷新一次整页，让顶部栏改为静态渲染并停止 fragment 轮询。
-        # 该刷新发生在后台请求完成之后，不会延迟初始页面的其它内容。
-        st.rerun(scope="app")
-    _render_brand()
 
 
 def _render_top_bar():
@@ -1684,11 +1663,7 @@ def _render_top_bar():
         )
 
     with brand_col:
-        update_snapshot = version_checker.poll_available_update(config.project_version)
-        if update_snapshot.complete:
-            _render_brand(update_snapshot.available_version)
-        else:
-            _render_pending_version_check()
+        _render_brand()
 
     with actions_col:
         with st.container(
@@ -1794,7 +1769,7 @@ def open_task_folder(task_id):
         # 通过路径拼接访问任务目录之外的位置，也避免后续打开目录时触发
         # 平台 shell 对特殊字符的解释。
         normalized_task_id = str(UUID(str(task_id)))
-        tasks_root = os.path.abspath(os.path.join(root_dir, "storage", "tasks"))
+        tasks_root = os.path.abspath(utils.storage_dir("tasks"))
         path = os.path.abspath(os.path.join(tasks_root, normalized_task_id))
 
         # 即使 UUID 校验通过，也再次确认最终路径仍在任务根目录内，避免
@@ -7653,6 +7628,37 @@ def _render_generation_controls(
     return start_button
 
 
+WEBUI_MODE_QUICK = "quick"
+WEBUI_MODE_ADVANCED = "advanced"
+WEBUI_MODE_LABELS = {
+    WEBUI_MODE_QUICK: "⚡ Tạo nhanh (giống bot Telegram)",
+    WEBUI_MODE_ADVANCED: "🛠 Tuỳ chỉnh chi tiết",
+}
+
+
+def _render_mode_selector(force_advanced=False):
+    """Chọn giữa trang Tạo nhanh (cùng chức năng với bot) và biểu mẫu chi tiết."""
+    saved_mode = config.ui.get("webui_mode", WEBUI_MODE_ADVANCED)
+    if saved_mode not in WEBUI_MODE_LABELS:
+        saved_mode = WEBUI_MODE_ADVANCED
+    if force_advanced or st.session_state.get("webui_mode") not in WEBUI_MODE_LABELS:
+        # Khôi phục cấu hình task chỉ áp dụng cho biểu mẫu chi tiết.
+        st.session_state["webui_mode"] = (
+            WEBUI_MODE_ADVANCED if force_advanced else saved_mode
+        )
+    mode = st.radio(
+        "Chế độ",
+        list(WEBUI_MODE_LABELS),
+        format_func=WEBUI_MODE_LABELS.get,
+        horizontal=True,
+        key="webui_mode",
+        label_visibility="collapsed",
+    )
+    if mode != saved_mode:
+        _set_runtime_config("ui", "webui_mode", mode)
+    return mode
+
+
 def _render_application():
     """按固定顺序渲染顶部栏、弹窗、生成表单和任务结果。"""
     _render_top_bar()
@@ -7670,6 +7676,14 @@ def _render_application():
     restore_succeeded = st.session_state.pop("task_restore_succeeded", False)
     if restore_applied or restore_succeeded:
         st.success(tr("Task Configuration Loaded"))
+
+    mode = _render_mode_selector(
+        force_advanced=bool(restore_applied or restore_succeeded or restore_candidate_id)
+    )
+    if mode == WEBUI_MODE_QUICK:
+        quick_page.render()
+        _save_runtime_config()
+        return
 
     with st.container(key="main_settings_grid"):
         panel = st.columns(4)

@@ -26,7 +26,9 @@ async def application_lifespan(_: FastAPI):
     configured_api_key = config.app.get("api_key", "")
     if configured_api_key in (None, ""):
         logger.warning(
-            "API key authentication is disabled; keep the API on a trusted network"
+            "API key authentication is disabled; only loopback hosts "
+            "(localhost / 127.0.0.1) are accepted unless MPT_ALLOWED_HOSTS "
+            "is configured"
         )
     elif isinstance(configured_api_key, str):
         # 只记录保护范围，不得输出 Key、长度或摘要，避免凭据进入日志系统。
@@ -136,8 +138,73 @@ def is_browser_origin_allowed(
     return origin == request_origin
 
 
-def configure_browser_access(instance: FastAPI, allowed_origins: list[str]) -> None:
-    """同时配置服务端 Origin 防护与浏览器 CORS 响应策略。"""
+# 未配置 api_key 时只信任回环地址的 Host。DNS 重绑定攻击会让恶意域名解析到
+# 127.0.0.1，此时浏览器发送的 Host/Origin 都是攻击者域名，仅比较二者无法识别；
+# 局域网访问同理。确需免鉴权地通过其它主机名访问时，再用 MPT_ALLOWED_HOSTS
+# 或 app.allowed_hosts 显式声明。
+LOOPBACK_HOSTNAMES = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def parse_allowed_hosts(raw_hosts) -> set[str]:
+    """解析免鉴权可信 Host 白名单，支持逗号分隔字符串或字符串列表。"""
+
+    if not raw_hosts:
+        return set()
+    if isinstance(raw_hosts, str):
+        raw_hosts = raw_hosts.split(",")
+    return {
+        str(host).strip().lower()
+        for host in raw_hosts
+        if isinstance(host, str) and host.strip()
+    }
+
+
+def is_request_host_allowed(request: Request, allowed_hosts: set[str]) -> bool:
+    """判断未启用 API Key 时请求的 Host 是否可信；启用 API Key 后由鉴权负责。"""
+
+    if config.app.get("api_key", "") not in (None, ""):
+        return True
+    if "*" in allowed_hosts:
+        return True
+    hostname = (request.url.hostname or "").lower().rstrip(".")
+    return (
+        hostname in LOOPBACK_HOSTNAMES
+        or hostname.endswith(".localhost")
+        or hostname in allowed_hosts
+    )
+
+
+def configure_browser_access(
+    instance: FastAPI,
+    allowed_origins: list[str],
+    allowed_hosts: set[str] | None = None,
+) -> None:
+    """同时配置服务端 Host/Origin 防护与浏览器 CORS 响应策略。"""
+
+    trusted_hosts = allowed_hosts or set()
+
+    @instance.middleware("http")
+    async def reject_untrusted_host(request: Request, call_next):
+        """免鉴权模式下拒绝非回环 Host，防止局域网滥用与 DNS 重绑定。"""
+
+        if not is_request_host_allowed(request, trusted_hosts):
+            logger.warning(
+                f"blocked request with untrusted host while API key "
+                f"authentication is disabled: method={request.method}, "
+                f"path={request.url.path}, host={request.url.hostname}"
+            )
+            return JSONResponse(
+                status_code=403,
+                content=utils.get_response(
+                    status=403,
+                    message=(
+                        "untrusted host: configure app.api_key, or add this "
+                        "host to MPT_ALLOWED_HOSTS / app.allowed_hosts"
+                    ),
+                ),
+            )
+
+        return await call_next(request)
 
     @instance.middleware("http")
     async def reject_untrusted_browser_origin(request: Request, call_next):
@@ -211,7 +278,10 @@ async def protect_generated_task_files(request: Request, call_next):
 cors_allowed_origins = parse_cors_allowed_origins(
     os.getenv("CORS_ALLOWED_ORIGINS", "")
 )
-configure_browser_access(app, cors_allowed_origins)
+allowed_hosts = parse_allowed_hosts(os.getenv("MPT_ALLOWED_HOSTS", "")) | (
+    parse_allowed_hosts(config.app.get("allowed_hosts", []))
+)
+configure_browser_access(app, cors_allowed_origins, allowed_hosts)
 
 task_dir = utils.task_dir()
 app.mount("/tasks", StaticFiles(directory=task_dir, html=True), name="")

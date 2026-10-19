@@ -6,6 +6,8 @@ import re
 import shutil
 import subprocess
 import tempfile
+from contextlib import contextmanager
+from contextvars import ContextVar
 from time import perf_counter
 from typing import List
 
@@ -31,6 +33,21 @@ _SENSITIVE_QUERY_RE = re.compile(
     r"([?&](?:api[_-]?key|access[_-]?token|token|key|secret|password)=)([^&#\s]+)",
     re.IGNORECASE,
 )
+# Model riêng cho một yêu cầu (ví dụ tuỳ chọn #high của bot Telegram): áp dụng cho mọi
+# lời gọi LLM trong cùng luồng xử lý khi Provider đang dùng trùng với Provider của
+# model đó, không đổi cấu hình chung của các yêu cầu khác.
+_model_override: ContextVar[tuple[str, str] | None] = ContextVar(
+    "llm_model_override", default=None
+)
+
+
+@contextmanager
+def use_model(model_name: str, provider: str = "openai"):
+    token = _model_override.set((provider.lower(), model_name) if model_name else None)
+    try:
+        yield
+    finally:
+        _model_override.reset(token)
 
 DEFAULT_SCRIPT_SYSTEM_PROMPT = """
 # Role: Video Script Generator
@@ -276,6 +293,10 @@ def _generate_response(prompt: str, app_config=None) -> str:
                 f"{llm_provider} model '{configured_model}' is deprecated, "
                 f"fallback to '{model_name}'"
             )
+        override = _model_override.get()
+        if override and override[0] == llm_provider:
+            model_name = override[1]
+        logger.info(f"llm model: {model_name}")
         configured_base_url = runtime_app_config.get(
             provider.config_key("base_url"), ""
         )
@@ -493,10 +514,14 @@ def _generate_response(prompt: str, app_config=None) -> str:
             except ValueError as timeout_error:
                 raise ValueError(f"{llm_provider}: {timeout_error}") from None
 
+            # 提示词通过 stdin 传入，不放进命令行参数：Windows 上 npm 安装的
+            # claude.cmd 会经由 cmd.exe 执行，Python 不会为 cmd.exe 转义参数，
+            # 主题或文案中的 `"`、`&`、`%VAR%` 可能被当作命令执行；cmd.exe
+            # 还会在第一个换行处截断参数，并受 8K 命令行长度限制。stdin 同时
+            # 避免提示词出现在进程列表中，并防止以 `-` 开头的提示词被解析为选项。
             command = [
                 cli_path,
                 "-p",
-                prompt,
                 "--output-format",
                 "json",
                 "--system-prompt",
@@ -528,8 +553,13 @@ def _generate_response(prompt: str, app_config=None) -> str:
                 try:
                     completed = subprocess.run(
                         command,
+                        input=prompt,
                         capture_output=True,
                         text=True,
+                        # 显式使用 UTF-8：Windows 默认控制台代码页无法编码中文、
+                        # 越南语等提示词，也会误解码 CLI 输出的 UTF-8 JSON。
+                        encoding="utf-8",
+                        errors="replace",
                         timeout=timeout_seconds,
                         cwd=work_dir,
                         env=cli_env,
@@ -821,6 +851,33 @@ def _strip_code_fence(text: str) -> str:
         t = re.sub(r"^```[a-zA-Z0-9]*\s*", "", t)
         t = re.sub(r"\s*```$", "", t)
     return t.strip()
+
+
+def generate_json_object(prompt: str) -> dict | None:
+    """
+    Gọi LLM với prompt yêu cầu trả về một object JSON.
+
+    Trả về None khi provider lỗi hoặc phản hồi không phải object JSON, để nơi gọi
+    tự chọn cách dự phòng thay vì làm hỏng luồng tạo video chính.
+    """
+    response = _generate_response(prompt)
+    if not isinstance(response, str) or not response.strip() or response.startswith("Error: "):
+        logger.warning(f"failed to generate json object: {str(response)[:300]}")
+        return None
+    text = _strip_code_fence(response)
+    try:
+        data = json.loads(text)
+    except ValueError:
+        # Một số model thêm lời dẫn quanh JSON; lấy object đầu tiên trong phản hồi.
+        match = re.search(r"\{.*\}", text, re.DOTALL)
+        try:
+            data = json.loads(match.group()) if match else None
+        except ValueError:
+            data = None
+    if not isinstance(data, dict):
+        logger.warning(f"llm response is not a json object: {text[:300]}")
+        return None
+    return data
 
 
 def generate_terms(

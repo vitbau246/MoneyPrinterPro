@@ -390,6 +390,14 @@ def search_videos_pexels(
     return []
 
 
+# API video của Pixabay không lọc được theo hướng, và thứ tự mặc định đưa clip ngang
+# 1080p cũ lên đầu nên video dọc thường chỉ còn 0–2 ứng viên mỗi từ khoá. Lọc kích
+# thước tối thiểu ngay từ API rồi lấy trang lớn nhất để có thêm clip đúng hướng, nhưng
+# chỉ giữ chừng này clip phù hợp đầu tiên để số ứng viên mỗi từ khoá như trước.
+_PIXABAY_PER_PAGE = 200
+_PIXABAY_MAX_CANDIDATES = 50
+
+
 def search_videos_pixabay(
     search_term: str,
     minimum_duration: int,
@@ -404,7 +412,9 @@ def search_videos_pixabay(
     params = {
         "q": search_term,
         "video_type": "all",  # Accepted values: "all", "film", "animation"
-        "per_page": 50,
+        "min_width": video_width,
+        "min_height": video_height,
+        "per_page": _PIXABAY_PER_PAGE,
         "key": api_key,
     }
     query_url = f"https://pixabay.com/api/videos/?{urlencode(params)}"
@@ -461,6 +471,8 @@ def search_videos_pixabay(
         videos = response["hits"]
         # loop through each video in the result
         for v in videos:
+            if len(video_items) >= _PIXABAY_MAX_CANDIDATES:
+                break
             duration = v["duration"]
             # check if video has desired minimum duration
             if duration < minimum_duration:
@@ -1655,6 +1667,56 @@ def _search_videos_with_cache(
         return items
 
 
+_MIN_CANDIDATES_BEFORE_ORIENTATION_FALLBACK = 3
+
+
+def _search_with_orientation_fallback(
+    search_videos,
+    search_term: str,
+    minimum_duration: int,
+    video_aspect: VideoAspect,
+) -> List[MaterialInfo]:
+    """
+    Kho video miễn phí có rất ít video dọc độ phân giải cao, nhiều từ khóa chỉ
+    trả về 0–1 kết quả và thành phẩm phải lặp lại cùng một cảnh. Khi thiếu ứng
+    viên, tìm thêm video khác hướng; bước ghép video sẽ cắt hoặc thêm viền theo
+    video_fit_mode. Tắt bằng ``material_orientation_fallback = false`` trong [app].
+    """
+    items = search_videos(
+        search_term=search_term,
+        minimum_duration=minimum_duration,
+        video_aspect=video_aspect,
+    )
+    aspect = VideoAspect(video_aspect)
+    if (
+        aspect == VideoAspect.square
+        or len(items) >= _MIN_CANDIDATES_BEFORE_ORIENTATION_FALLBACK
+        or not config.app.get("material_orientation_fallback", True)
+    ):
+        return items
+
+    fallback_aspect = (
+        VideoAspect.landscape if aspect == VideoAspect.portrait else VideoAspect.portrait
+    )
+    try:
+        extra_items = search_videos(
+            search_term=search_term,
+            minimum_duration=minimum_duration,
+            video_aspect=fallback_aspect,
+        )
+    except Exception as exc:
+        logger.warning(f"orientation fallback search failed for '{search_term}': {exc}")
+        return items
+    seen_urls = {item.url for item in items}
+    extra_items = [item for item in extra_items if item.url not in seen_urls]
+    if extra_items:
+        logger.info(
+            f"only {len(items)} {aspect.value} videos for '{search_term}', "
+            f"added {len(extra_items)} {fallback_aspect.value} videos as fallback"
+        )
+    return items + extra_items
+
+
 def download_videos(
     task_id: str,
     search_terms: List[str],
@@ -1769,7 +1831,8 @@ def download_videos(
     valid_video_urls = []
     found_duration = 0.0
     for search_term in search_terms:
-        video_items = search_videos(
+        video_items = _search_with_orientation_fallback(
+            search_videos,
             search_term=search_term,
             minimum_duration=max_clip_duration,
             video_aspect=video_aspect,
@@ -2264,7 +2327,8 @@ def _download_videos_by_script_order(
     found_duration = 0.0
 
     for search_term in search_terms:
-        video_items = search_videos(
+        video_items = _search_with_orientation_fallback(
+            search_videos,
             search_term=search_term,
             minimum_duration=max_clip_duration,
             video_aspect=video_aspect,

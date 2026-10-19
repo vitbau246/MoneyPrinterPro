@@ -21,7 +21,7 @@ class TestASGICORS(unittest.TestCase):
             return {"status": "ok"}
 
         asgi.configure_browser_access(application, allowed_origins)
-        return TestClient(application)
+        return TestClient(application, base_url="http://localhost")
 
     def test_origin_parser_trims_values_and_ignores_empty_items(self):
         """环境变量中的空格和尾随逗号不应破坏合法来源匹配。"""
@@ -65,12 +65,72 @@ class TestASGICORS(unittest.TestCase):
 
         same_origin = client.get(
             "/probe",
-            headers={"Origin": "http://testserver"},
+            headers={"Origin": "http://localhost"},
         )
         server_client = client.get("/probe")
 
         self.assertEqual(same_origin.status_code, 200)
         self.assertEqual(server_client.status_code, 200)
+
+    def test_untrusted_host_is_rejected_without_api_key(self):
+        """未配置 api_key 时，局域网 Host 和 DNS 重绑定域名都必须被拒绝。"""
+
+        from app.config import config
+
+        original_key = config.app.get("api_key", "")
+        config.app["api_key"] = ""
+        try:
+            application = FastAPI()
+
+            @application.get("/probe")
+            def probe():
+                return {"status": "ok"}
+
+            asgi.configure_browser_access(application, [], {"mpt.lan"})
+
+            for base_url in ("http://localhost", "http://127.0.0.1:8080",
+                             "http://mpt.lan:8080"):
+                with self.subTest(base_url=base_url):
+                    client = TestClient(application, base_url=base_url)
+                    self.assertEqual(client.get("/probe").status_code, 200)
+
+            for base_url in ("http://192.168.1.20:8080", "http://evil.example:8080"):
+                with self.subTest(base_url=base_url):
+                    client = TestClient(application, base_url=base_url)
+                    # 重绑定场景下 Origin 与 Host 相同，旧的同源比较会放行。
+                    response = client.get(
+                        "/probe", headers={"Origin": base_url}
+                    )
+                    self.assertEqual(response.status_code, 403)
+
+            # TestClient 无法解析 IPv6 base_url，直接构造请求验证 [::1]。
+            from starlette.requests import Request
+
+            ipv6_request = Request(
+                {
+                    "type": "http",
+                    "scheme": "http",
+                    "path": "/probe",
+                    "query_string": b"",
+                    "headers": [(b"host", b"[::1]:8080")],
+                    "server": ("::1", 8080),
+                }
+            )
+            self.assertTrue(asgi.is_request_host_allowed(ipv6_request, set()))
+
+            config.app["api_key"] = "host-secret"
+            client = TestClient(application, base_url="http://192.168.1.20:8080")
+            self.assertEqual(client.get("/probe").status_code, 200)
+        finally:
+            config.app["api_key"] = original_key
+
+    def test_allowed_hosts_parser_accepts_strings_and_lists(self):
+        self.assertEqual(
+            asgi.parse_allowed_hosts(" A.example, ,b.example "),
+            {"a.example", "b.example"},
+        )
+        self.assertEqual(asgi.parse_allowed_hosts(["x.lan", 3, ""]), {"x.lan"})
+        self.assertEqual(asgi.parse_allowed_hosts(None), set())
 
     def test_explicit_origin_allows_only_the_trusted_frontend(self):
         """独立网页前端显式配置后可以访问，其他来源仍必须被拒绝。"""
@@ -155,7 +215,7 @@ class TestASGICORS(unittest.TestCase):
             return {"file": save_upload(file.filename)}
 
         asgi.configure_browser_access(application, [])
-        client = TestClient(application)
+        client = TestClient(application, base_url="http://localhost")
 
         response = client.post(
             "/upload",

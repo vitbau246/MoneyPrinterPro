@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlsplit
 
 import requests
 
@@ -421,6 +422,56 @@ class TestMaterialTlsVerification(unittest.TestCase):
 
         logged_messages = " ".join(str(call.args[0]) for call in log.call_args_list)
         self.assertNotIn("pixabay-secret-key", logged_messages)
+
+    def test_search_pixabay_filters_by_target_size_and_keeps_first_50(self):
+        """
+        Pixabay không lọc được theo hướng: yêu cầu kích thước tối thiểu bằng khung
+        hình đích để clip ngang 1080p không chiếm hết kết quả của video dọc, lấy
+        trang lớn nhất nhưng chỉ giữ 50 clip phù hợp đầu tiên như trước.
+        """
+        config.app["pixabay_api_keys"] = ["pixabay-key"]
+        config.proxy.clear()
+        hits = [
+            {
+                "id": index,
+                "duration": 8,
+                "videos": {
+                    "large": {
+                        "width": 1080,
+                        "height": 1920,
+                        "url": f"https://example.com/{index}.mp4",
+                    }
+                },
+            }
+            for index in range(60)
+        ]
+        fake_response = SimpleNamespace(
+            status_code=200,
+            headers={"content-type": "application/json"},
+            text="",
+            json=lambda: {"hits": hits},
+        )
+        expected = {
+            material.VideoAspect.portrait: ("1080", "1920"),
+            material.VideoAspect.landscape: ("1920", "1080"),
+            material.VideoAspect.square: ("1080", "1080"),
+        }
+
+        for aspect, (min_width, min_height) in expected.items():
+            with patch("app.services.material.requests.get", return_value=fake_response) as get:
+                material.search_videos_pixabay("cat", minimum_duration=1, video_aspect=aspect)
+
+            query = parse_qs(urlsplit(get.call_args.args[0]).query)
+            self.assertEqual(query["min_width"], [min_width], aspect)
+            self.assertEqual(query["min_height"], [min_height], aspect)
+            self.assertEqual(query["per_page"], ["200"], aspect)
+
+        with patch("app.services.material.requests.get", return_value=fake_response):
+            results = material.search_videos_pixabay("cat", minimum_duration=1)
+
+        self.assertEqual(len(results), 50)
+        self.assertEqual(results[0].url, "https://example.com/0.mp4")
+        self.assertEqual(results[-1].url, "https://example.com/49.mp4")
 
     def test_search_pixabay_reports_cloudflare_challenge(self):
         """

@@ -43,7 +43,7 @@ def create(audio_file, subtitle_file: str = "", word_level: bool = False):
                 f"********************************************\n"
                 f"this may be caused by network issue. \n"
                 f"please download the model manually and put it in the 'models' folder. \n"
-                f"see [README.md FAQ](https://github.com/harry0703/MoneyPrinterTurbo) for more details.\n"
+                f"see the FAQ in README.md for more details.\n"
                 f"********************************************\n\n"
             )
             return None
@@ -299,6 +299,80 @@ def correct(subtitle_file, video_script):
         logger.info("Subtitle corrected")
     else:
         logger.success("Subtitle is correct")
+
+
+_LANGUAGE_NAMES = {"vi": "tiếng Việt", "en": "tiếng Anh", "zh": "tiếng Trung"}
+_TRANSLATE_ATTEMPTS = 2
+
+_TRANSLATE_PROMPT = """
+# Vai trò: Biên dịch phụ đề video ngắn
+
+Dịch các dòng phụ đề bên dưới sang {language}. Các dòng hiện lần lượt trên video, một câu có thể trải qua nhiều dòng.
+
+## Quy tắc:
+1. Trả về đúng {count} dòng, đúng thứ tự. Dòng thứ i hiện cùng lúc với dòng gốc thứ i nên phải giữ ý tương ứng; dịch theo cả câu cho tự nhiên rồi chia lại cho khớp từng dòng.
+2. Văn nói tự nhiên, ngắn gọn, dễ đọc nhanh; không thêm, không bỏ ý.
+3. Giữ nguyên tên riêng, thương hiệu; số viết bằng chữ số.
+4. Không ghi chú, không giải thích, không markdown, không dòng trống.
+5. Chỉ trả về một object JSON hợp lệ: {{"lines": ["...", "..."]}}
+
+## Toàn bộ lời đọc (để hiểu ngữ cảnh):
+{script}
+
+## Các dòng phụ đề:
+{lines}
+""".strip()
+
+
+def _same_language(a: str, b: str) -> bool:
+    """So ngôn ngữ chính, bỏ qua vùng: "vi-VN" và "vi" là cùng ngôn ngữ."""
+    return bool(a and b) and a.split("-")[0].lower() == b.split("-")[0].lower()
+
+
+def needs_translation(subtitle_language: str, video_language: str) -> bool:
+    return bool(subtitle_language) and not _same_language(subtitle_language, video_language)
+
+
+def translate(subtitle_file: str, target_language: str, video_script: str = "") -> bool:
+    """
+    Dịch phụ đề sang ``target_language`` tại chỗ, giữ nguyên số dòng và thời gian.
+
+    Trả về False và giữ phụ đề gốc khi AI lỗi hoặc trả về sai số dòng, để video
+    vẫn có phụ đề đúng lời đọc thay vì không có phụ đề.
+    """
+    # Import trễ: llm kéo theo nhiều provider, không cần khi chỉ tạo phụ đề.
+    from app.services import llm
+
+    items = file_to_subtitles(subtitle_file)
+    if not items:
+        return False
+    code = target_language.split("-")[0].lower()
+    prompt = _TRANSLATE_PROMPT.format(
+        language=_LANGUAGE_NAMES.get(code, target_language),
+        count=len(items),
+        script=(video_script or "").strip()[:4000] or "(không có)",
+        lines="\n".join(f"{index}. {item[2]}" for index, item in enumerate(items, start=1)),
+    )
+    for attempt in range(1, _TRANSLATE_ATTEMPTS + 1):
+        raw = (llm.generate_json_object(prompt) or {}).get("lines")
+        lines = (
+            [" ".join(str(line).split()) for line in raw] if isinstance(raw, list) else []
+        )
+        if len(lines) == len(items) and all(lines):
+            break
+        logger.warning(
+            f"subtitle translation attempt {attempt} returned {len(lines)} lines, "
+            f"expected {len(items)}"
+        )
+    else:
+        logger.warning(f"keep original subtitles, translation to {target_language} failed")
+        return False
+
+    with open(subtitle_file, "w", encoding="utf-8") as fd:
+        for index, (item, line) in enumerate(zip(items, lines), start=1):
+            fd.write(f"{index}\n{item[1]}\n{line}\n\n")
+    logger.info(f"subtitle translated to {target_language}: {subtitle_file}")
+    return True
 
 
 if __name__ == "__main__":

@@ -1228,7 +1228,7 @@ def generate_video(
     logger.info(f"  ③ subtitle: {subtitle_path}")
     logger.info(f"  ④ output: {output_file}")
 
-    # https://github.com/harry0703/MoneyPrinterTurbo/issues/217
+    # Issue #217 của dự án gốc:
     # PermissionError: [WinError 32] The process cannot access the file because it is being used by another process: 'final-1.mp4.tempTEMP_MPY_wvf_snd.mp3'
     # write into the same directory as the output file
     output_dir = os.path.dirname(output_file)
@@ -1237,7 +1237,18 @@ def generate_video(
     if params.subtitle_enabled:
         if not params.font_name:
             params.font_name = "STHeitiMedium.ttc"
-        font_path = os.path.join(utils.font_dir(), params.font_name)
+        # font_name 来自 API 请求，必须限制在字体目录内。直接拼接会允许
+        # `../../config.toml` 读取任意文件，绝对路径或 UNC 路径还会替换掉
+        # 字体目录，使服务器向外部主机发起 SMB 连接。
+        try:
+            font_path = file_security.resolve_path_within_directory(
+                utils.font_dir(), params.font_name, require_file=False
+            )
+        except ValueError as exc:
+            raise ValueError(
+                "invalid font_name, it must be a font file inside "
+                f"resource/fonts: {params.font_name}"
+            ) from exc
         if os.name == "nt":
             font_path = font_path.replace("\\", "/")
 

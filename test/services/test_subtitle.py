@@ -239,5 +239,59 @@ class TestSubtitleService(unittest.TestCase):
         self.assertEqual([item[2] for item in items], ["Hello", "World"])
 
 
+class TestSubtitleTranslation(unittest.TestCase):
+    SRT = (
+        "1\n00:00:00,000 --> 00:00:01,200\nSave money,\n\n"
+        "2\n00:00:01,200 --> 00:00:03,000\ncook at home.\n\n"
+    )
+
+    def _write(self, tmp_dir: str) -> Path:
+        path = Path(tmp_dir) / "subtitle.srt"
+        path.write_text(self.SRT, encoding="utf-8")
+        return path
+
+    def test_needs_translation_compares_primary_language(self):
+        self.assertTrue(subtitle.needs_translation("vi-VN", "en-US"))
+        self.assertTrue(subtitle.needs_translation("vi-VN", ""))
+        self.assertFalse(subtitle.needs_translation("vi-VN", "vi"))
+        self.assertFalse(subtitle.needs_translation("", "en-US"))
+
+    def test_translate_keeps_timing_and_line_count(self):
+        from app.services import llm
+
+        data = {"lines": ["Tiết kiệm tiền,", " nấu ăn\n ở nhà. "]}
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = self._write(tmp_dir)
+            with patch.object(llm, "generate_json_object", return_value=data) as generate:
+                self.assertTrue(subtitle.translate(str(path), "vi-VN", "Save money, cook at home."))
+            items = subtitle.file_to_subtitles(str(path))
+
+        prompt = generate.call_args.args[0]
+        self.assertIn("tiếng Việt", prompt)
+        self.assertIn("đúng 2 dòng", prompt)
+        self.assertIn("2. cook at home.", prompt)
+        self.assertEqual(
+            items,
+            [
+                (1, "00:00:00,000 --> 00:00:01,200", "Tiết kiệm tiền,"),
+                (2, "00:00:01,200 --> 00:00:03,000", "nấu ăn ở nhà."),
+            ],
+        )
+
+    def test_translate_keeps_original_when_line_count_is_wrong(self):
+        from app.services import llm
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = self._write(tmp_dir)
+            with patch.object(
+                llm, "generate_json_object", return_value={"lines": ["Chỉ một dòng"]}
+            ) as generate:
+                self.assertFalse(subtitle.translate(str(path), "vi-VN"))
+            text = path.read_text(encoding="utf-8")
+
+        self.assertEqual(generate.call_count, 2)
+        self.assertEqual(text, self.SRT)
+
+
 if __name__ == "__main__":
     unittest.main()

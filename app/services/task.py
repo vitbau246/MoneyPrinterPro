@@ -597,7 +597,13 @@ def generate_subtitle(task_id, params, video_script, sub_maker, audio_file):
         )
         return ""
 
-    is_word_level = getattr(params, "subtitle_display_mode", "sentence") == "word_by_word"
+    translate_to = getattr(params, "subtitle_language", "") or ""
+    translate = subtitle.needs_translation(translate_to, params.video_language or "")
+    # Phụ đề dịch không khớp từng từ với lời đọc, nên luôn hiện theo câu.
+    is_word_level = (
+        getattr(params, "subtitle_display_mode", "sentence") == "word_by_word"
+        and not translate
+    )
 
     if subtitle_provider == "edge":
         voice.create_subtitle(
@@ -626,6 +632,10 @@ def generate_subtitle(task_id, params, video_script, sub_maker, audio_file):
         if not is_word_level:
             logger.info("\n\n## correcting subtitle")
             subtitle.correct(subtitle_file=subtitle_path, video_script=video_script)
+
+    if translate and os.path.exists(subtitle_path):
+        logger.info(f"\n\n## translating subtitle to {translate_to}")
+        subtitle.translate(subtitle_path, translate_to, video_script)
 
     subtitle_lines = subtitle.file_to_subtitles(subtitle_path)
     if not subtitle_lines:
@@ -857,6 +867,30 @@ def _get_material_source_groups(task_id: str, video_paths: list[str]) -> dict[st
         return {}
 
 
+def _add_cover(task_id, params, index, final_video_path, combined_video_path) -> None:
+    """
+    Tạo cover-N.jpg và ghép vào đầu final-N.mp4 khi params yêu cầu.
+
+    Khung nền lấy từ combined-N.mp4 vì bản này chưa có phụ đề. Lỗi ở bước này
+    chỉ ghi cảnh báo: video thành phẩm vẫn dùng được khi không có cover.
+    """
+    title = (params.cover_title or "").strip()
+    if not title:
+        return
+    from app.services import cover
+
+    cover_path = path.join(utils.task_dir(task_id), f"cover-{index}.jpg")
+    created = cover.create_cover(
+        final_video_path,
+        title,
+        cover_path,
+        label=params.cover_label,
+        sources=[combined_video_path] if path.exists(combined_video_path) else None,
+    )
+    if created and params.cover_intro_seconds > 0:
+        cover.prepend_cover(final_video_path, created, params.cover_intro_seconds)
+
+
 def generate_final_videos(
     task_id, params, downloaded_videos, audio_file, subtitle_path, audio_duration
 ):
@@ -996,6 +1030,8 @@ def generate_final_videos(
                     "video_index": index,
                 }
             )
+
+        _add_cover(task_id, params, index, final_video_path, combined_video_path)
 
         _progress += 50 / params.video_count / 2
         sm.state.update_task(task_id, progress=_progress)

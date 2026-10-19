@@ -1,3 +1,10 @@
+> **Nguồn / Source:** bản tuỳ biến dựa trên dự án gốc **MoneyPrinterTurbo** của Harry –
+> https://github.com/harry0703/MoneyPrinterTurbo (giấy phép MIT, giữ nguyên trong `LICENSE`).
+> Phần bổ sung trong bản này: bot Telegram, chế độ "Tạo nhanh" trên web (cùng chức năng với bot),
+> ảnh GIF có chữ, thư viện thành phẩm, lập lịch và tự động đăng Facebook Reels / TikTok / YouTube
+> Shorts. Bản này không kết nối tới kho gốc (không tự cập nhật, không kiểm tra phiên bản).
+> This is a customised fork of the original project above (MIT License).
+
 <div align="center">
 
 # MoneyPrinterTurbo 💸
@@ -14,7 +21,7 @@ Provide a video <b>topic</b> or <b>keyword</b>, and MoneyPrinterTurbo will gener
 <a href="https://trendshift.io/repositories/8731" target="_blank"><img src="https://trendshift.io/api/badge/repositories/8731" alt="harry0703%2FMoneyPrinterTurbo | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
 <a href="https://www.star-history.com/harry0703/moneyprinterturbo"><img src="https://api.star-history.com/badge?repo=harry0703/MoneyPrinterTurbo" alt="Star History Rank" style="height: 55px;" height="55"/></a>
 
-English | [简体中文](README.md) | [日本語](README-ja.md) | [Releases](https://github.com/harry0703/MoneyPrinterTurbo/releases) | [Issues](https://github.com/harry0703/MoneyPrinterTurbo/issues)
+English | [简体中文](README.md) | [日本語](README-ja.md) | [Tiếng Việt](README-vi.md) | [Releases](https://github.com/harry0703/MoneyPrinterTurbo/releases) | [Issues](https://github.com/harry0703/MoneyPrinterTurbo/issues)
 
 </div>
 
@@ -257,6 +264,86 @@ All examples below were generated with MoneyPrinterTurbo.
 - If you mainly rely on cloud LLMs, cloud TTS, and online material sources, CPU and RAM matter more than GPU
 - If you use `faster-whisper`, batch generation, or heavier local processing, a GPU will improve throughput noticeably
 
+## Required APIs & Estimated Cost 💰
+
+### How a Video Is Built
+
+Each generation task runs the same pipeline (see `app/services/task.py`). Every stage maps to one configurable service, and that service decides whether the stage costs anything:
+
+| # | Stage | Service used | Config key |
+| - | ----- | ------------ | ---------- |
+| 1 | Script | LLM (`generate_script`), skipped when you supply your own script | `llm_provider` + `<provider>_api_key` |
+| 2 | Search terms | LLM (`generate_terms`), skipped when you supply terms or use `local` footage | same as above |
+| 3 | Voiceover | TTS provider | `tts_server` in the WebUI, `[azure]`, `[elevenlabs]`, ... |
+| 4 | Subtitles | Edge TTS timestamps or local Whisper | `subtitle_provider` |
+| 5 | Footage | Stock search or AI generation | `video_source` + matching key |
+| 6 | Background music | Local files or AI music | `bgm_type`, `sonilo_api_key`, `[elevenlabs]` |
+| 7 | Rendering | Local FFmpeg / MoviePy | `ffmpeg_path`, `video_codec` |
+| 8 | Publishing (optional) | Upload-Post | `upload_post_*` |
+
+### Required APIs
+
+For a standard run with the default `pexels` footage source, you need **two API keys**:
+
+| API | Required? | Why | Free option | Where to get it |
+| --- | --------- | --- | ----------- | --------------- |
+| **LLM provider** (any one) | ✅ Required* | Writes the script and the footage search terms | Ollama (local), OpenRouter free models, Gemini free tier, Pollinations, or Claude Code with an existing subscription | See [Scripts and Model Providers](#scripts-and-model-providers) |
+| **Footage source** (any one) | ✅ Required** | Searches or generates the visual clips | Pexels and Pixabay are free | [Pexels](https://www.pexels.com/api/) · [Pixabay](https://pixabay.com/api/docs/) |
+| TTS voice | ⚪ Optional | Narration | **Edge TTS** (`Azure TTS V1` in the WebUI) is free and needs no key | Azure Speech, ElevenLabs, MiniMax, Fish Audio, SiliconFlow, ... |
+| Subtitles | ⚪ Optional | Subtitle timing | `edge` mode (default) and `whisper` (runs locally) are both free | — |
+| AI background music | ⚪ Optional | Music generated to fit the video | Bundled tracks in `resource/songs` are free | [Sonilo](https://platform.sonilo.com/dashboard) · [ElevenLabs Music](https://elevenlabs.io/app/settings/api-keys) |
+| TwelveLabs | ⚪ Optional | Semantic footage ranking and video QA | — | [TwelveLabs](https://playground.twelvelabs.io/) |
+| Upload-Post | ⚪ Optional | Auto-publish to TikTok, Instagram, YouTube | — | [Upload-Post](https://upload-post.com/) |
+
+\* You can skip the LLM only if you provide **both** a custom script **and** custom search terms (API/CLI), or if you provide a custom script and use `video_source = "local"`.<br>
+\** You don't need a footage key when you use `video_source = "local"` with your own images and videos.
+
+> **Minimum zero-cost setup:** a free Pexels key, a free or local LLM (such as Ollama), Edge TTS, `edge` subtitles, and the bundled background music.
+
+### Estimated Cost per Video
+
+The estimates below assume a **60-second video** with about 150 English words (≈ 900 characters, or about 250 Chinese characters), `video_clip_duration = 5` (so about **12 clips**), and `video_count = 1`. Rendering happens locally and costs nothing beyond your own hardware and electricity.
+
+**Cost by stage**
+
+| Stage | Free option | Typical paid cost per 60-sec video |
+| ----- | ----------- | ---------------------------------- |
+| LLM (2 calls, about 1.5k–3k tokens total) | Ollama / free-tier models: $0 | Usually **< $0.01** with DeepSeek, Kimi, Qwen, GPT-mini-class, or Gemini Flash-class models; a few cents with top-tier models |
+| Voiceover (≈ 900 characters) | Edge TTS: $0 | Azure Speech neural: about $0.015 · ElevenLabs / MiniMax HD: about $0.05–0.30, depending on plan and model |
+| Subtitles | `edge` / local Whisper: $0 | — |
+| Stock footage (Pexels / Pixabay) | $0 | Coverr: depends on plan |
+| AI images (`openai_image`, about 12 images) | Local ComfyUI/SD gateway: $0 | About $0.07 (at $0.006/image via relays such as APIMart) up to $0.50+ on premium official endpoints |
+| AI video clips (≈ 60 sec of footage) | — | **The largest cost by far.** See the next table |
+| AI background music (Sonilo / ElevenLabs Music) | Bundled tracks: $0 | Billed per generation by the provider |
+
+**AI video footage (60 seconds of generated clips)**
+
+AI video sources generate clips one at a time until they cover the voiceover. The number of paid clips is about `ceil(voiceover seconds × video_count / video_clip_duration)`, and the WebUI shows this estimate and asks you to confirm the charge before it submits anything.
+
+| Source / model | Reference price | ≈ Cost for 60 sec |
+| -------------- | --------------- | ----------------- |
+| Metaso MiniMax H3 – 768P | CNY 0.09 / sec | ≈ CNY 5.4 (≈ $0.75) |
+| Metaso MiniMax H3 – 2K | CNY 0.15 / sec | ≈ CNY 9 (≈ $1.25) |
+| Shengsuan Cloud – Jimeng 3.0 720p | CNY 0.23 / sec | ≈ CNY 13.8 (≈ $1.9) |
+| Shengsuan Cloud – Wan 2.2 fast | CNY 0.35 (480P) – 0.77 (720P) / clip | ≈ CNY 4.2–9.2 for 12 clips |
+| Shengsuan Cloud – Veo 3.1 Fast | CNY 0.70 / sec | ≈ CNY 42 (≈ $5.8) |
+| Shengsuan Cloud – Vidu Q3 Pro | CNY 0.44–1.00 / sec | ≈ CNY 26–60 |
+| Shengsuan Cloud – Veo 3 / Veo 3.1 | CNY 1.40 / sec | ≈ CNY 84 (≈ $11.7) |
+| Shengsuan Cloud – Kling v2 / v2.1 Master | CNY 10 per 5-sec clip | ≈ CNY 120 (≈ $16.7) |
+| Volcano Engine Seedance, WaveSpeed, OFox | Billed per clip by model, resolution, and duration | Check the provider's pricing page |
+
+**Summary by setup**
+
+| Setup | Services | ≈ Cost per 60-sec video |
+| ----- | -------- | ----------------------- |
+| 🆓 Free | Pexels/Pixabay + Ollama or a free-tier LLM + Edge TTS + bundled music | **$0** |
+| 💡 Budget (recommended to start) | Pexels + a low-cost cloud LLM (DeepSeek, Kimi, ...) + Edge TTS | **< $0.01** |
+| 🎙️ Premium voice | Budget + Azure Speech / ElevenLabs / MiniMax TTS | **≈ $0.02–0.35** |
+| 🖼️ AI images | Premium voice + `openai_image` | **≈ $0.10–0.90** |
+| 🎬 AI video | Any setup above + an AI video source | **≈ $0.75–17+**, depending on the model |
+
+> ⚠️ Prices are reference values for guidance only (USD conversions use about CNY 7.2 = $1). Providers change their prices, free tiers, and promotions often. Always check the provider's current pricing page. Your final charge is based on actual usage. Batch output (`video_count > 1`), longer scripts, shorter `video_clip_duration`, and repeated voice previews all increase the cost proportionally. A full voiceover preview calls the selected TTS service again.
+
 ## Quick Start 🚀
 
 ### Recommended Paths
@@ -412,6 +499,8 @@ If you have already activated the virtual environment manually, you can still ru
 ```shell
 python main.py
 ```
+
+> The API listens on `127.0.0.1` by default. To call it from other devices, set `listen_host = "0.0.0.0"` **and** a strong `api_key` in `config.toml`, then send the key in the `x-api-key` header. While `api_key` is empty, the API only accepts requests addressed to `localhost` / `127.0.0.1`, which blocks LAN abuse of your paid API credits and DNS-rebinding attacks from malicious websites. To trust extra host names without a key, set `allowed_hosts` in `config.toml` or the `MPT_ALLOWED_HOSTS` environment variable.
 
 #### ④ Pure CLI Mode (No Browser) ⌨️
 

@@ -1,3 +1,10 @@
+> **Nguồn / Source:** bản tuỳ biến dựa trên dự án gốc **MoneyPrinterTurbo** của Harry –
+> https://github.com/harry0703/MoneyPrinterTurbo (giấy phép MIT, giữ nguyên trong `LICENSE`).
+> Phần bổ sung trong bản này: bot Telegram, chế độ "Tạo nhanh" trên web (cùng chức năng với bot),
+> ảnh GIF có chữ, thư viện thành phẩm, lập lịch và tự động đăng Facebook Reels / TikTok / YouTube
+> Shorts. Bản này không kết nối tới kho gốc (không tự cập nhật, không kiểm tra phiên bản).
+> This is a customised fork of the original project above (MIT License).
+
 <div align="center">
 
 # MoneyPrinterTurbo 💸
@@ -14,7 +21,7 @@
 <a href="https://trendshift.io/repositories/8731" target="_blank"><img src="https://trendshift.io/api/badge/repositories/8731" alt="harry0703%2FMoneyPrinterTurbo | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
 <a href="https://www.star-history.com/harry0703/moneyprinterturbo"><img src="https://api.star-history.com/badge?repo=harry0703/MoneyPrinterTurbo" alt="Star History Rank" style="height: 55px;" height="55"/></a>
 
-日本語 | [English](README-en.md) | [简体中文](README.md) | [リリース](https://github.com/harry0703/MoneyPrinterTurbo/releases) | [Issues](https://github.com/harry0703/MoneyPrinterTurbo/issues)
+日本語 | [English](README-en.md) | [简体中文](README.md) | [Tiếng Việt](README-vi.md) | [リリース](https://github.com/harry0703/MoneyPrinterTurbo/releases) | [Issues](https://github.com/harry0703/MoneyPrinterTurbo/issues)
 
 </div>
 
@@ -48,7 +55,7 @@
       <a href="https://www.byteplus.com/en/product/modelark?utm_campaign=hw&utm_content=MoneyPrinterTurbo&utm_medium=devrel_tool_web&utm_source=OWO&utm_term=MoneyPrinterTurbo"><strong>BytePlus ModelArk</strong></a>
     </td>
     <td align="left">
-      本プロジェクトをスポンサードしてくださっている Dola Seed に感謝します！ <a href="https://www.byteplus.com/en/product/modelark?utm_campaign=hw&utm_content=MoneyPrinterTurbo&utm_medium=devrel_tool_web&utm_source=OWO&utm_term=MoneyPrinterTurbo">Dola Seed 2.0</a> は、ByteDance がグローバル市場向けに独自開発した全モーダル対応の汎用大規模モデルです。統合マルチモーダルアーキテクチャを基盤とし、テキスト・画像・音声・動画の統合的な理解と生成をサポートします。エージェント連携をネイティブに実現し、推論、長時間タスクの遂行、ツール連携、コーディングにおいて優れた能力を発揮します。こちらのリンクから登録すると、モデルごとに 50 万トークンの無料推論枠が付与されます。
+      本プロジェクトをスポンサードしてくださっている ByteDance VolcEngine に感謝します！ VolcEngine Ark の中国主要モデル向け Agent/Coding Plan は初回購入なら 9.9 元から利用でき、GLM-5.3、Kimi-K3、DeepSeek、MiniMax、Doubao などに対応しています。新規ユーザーには 2,500 万トークンの無料枠が付与されます。1 つの統合 API で、コーディングとエージェント開発に最適化されています。<a href="https://www.byteplus.com/en/product/modelark?utm_campaign=hw&utm_content=MoneyPrinterTurbo&utm_medium=devrel_tool_web&utm_source=OWO&utm_term=MoneyPrinterTurbo">今すぐアクセス</a>
     </td>
   </tr>
   <tr>
@@ -81,6 +88,14 @@
   </tr>
   <tr>
     <td align="center" width="120">
+      <a href="https://ofox.ai/?utm_source=github&amp;utm_medium=sponsorship&amp;utm_content=moneyprinterturbo"><img src="docs/sponsors/ofox-logo.svg" alt="OfoxAI" width="120"></a>
+    </td>
+    <td align="left">
+      本プロジェクトをスポンサードしてくださっている <a href="https://ofox.ai/?utm_source=github&amp;utm_medium=sponsorship&amp;utm_content=moneyprinterturbo">OfoxAI</a> に感謝します！ MoneyPrinterTurbo はすでに Ofox のマルチモデルによるテキスト動画生成に対応しており、API キーを設定するだけで利用を開始できます。Seedance、MiniMax H3、Wan で動画素材を作成し、GPT Image 2.5 と Seedream でカバー画像をデザインし、GPT、Claude、Gemini、DeepSeek で台本の推敲やアプリケーション開発を行えます。<strong>1 つのキーと共通の残高でテキスト・画像・動画モデルを利用でき</strong>、OpenAI 互換エンドポイントに加えて Anthropic と Gemini のネイティブインターフェースにも対応しています。<strong>従量課金、透明な料金体系、モデル提供元の公式チャネルにより、安定・高速・無制限のアクセスを提供します。</strong> <a href="https://ofox.ai/?utm_source=github&amp;utm_medium=sponsorship&amp;utm_content=moneyprinterturbo">OfoxAI のモデルと料金</a>をご覧ください。
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="120">
       <a href="https://infistar.cc/register?aff=6T4EYXP2&amp;ref_source=link"><img src="docs/sponsors/infistar-logo.svg" alt="Infistar.ai" height="56"></a><br>
       <a href="https://infistar.cc/register?aff=6T4EYXP2&amp;ref_source=link"><strong>Infistar.ai</strong></a>
     </td>
@@ -101,6 +116,19 @@
       本プロジェクトをスポンサードしてくださっている <a href="https://www.shengsuanyun.com/?from=CH_XUQ4OTSK">Shengsuan Cloud</a> に感謝します！ Shengsuan Cloud は AI ネイティブなチーム向けの API 集約プラットフォームで、Claude、ChatGPT、Gemini などの主要な言語モデルやマルチモーダルモデルを、統一 API と従量課金で利用できます。<br>
       コンプライアンスに配慮した API サービスに加え、チームのコスト・権限管理、インテリジェントルーティング、セキュリティ対策、BYOK による認証情報管理、請求書発行に対応するエンタープライズゲートウェイも提供しています。<br>
       🎁 <a href="https://www.shengsuanyun.com/?from=CH_XUQ4OTSK">こちらのリンク</a>から新規登録すると、10 元分のトライアルクレジットを受け取れます。
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="120">
+      <a href="https://www.ucloud.cn/site/active/astraflow?ytag=geo_waituo_Money"><img src="docs/sponsors/astraflow-logo.png" alt="AstraFlow" height="56"></a><br>
+      <a href="https://www.ucloud.cn/site/active/astraflow?ytag=geo_waituo_Money"><strong>AstraFlow</strong></a>
+    </td>
+    <td align="left">
+      本プロジェクトをスポンサードしてくださっている <a href="https://www.ucloud.cn/site/active/astraflow?ytag=geo_waituo_Money">AstraFlow</a> に感謝します！<br>
+      🎬 <strong>主要な動画モデルを 1 つのプラットフォームで</strong>: MiniMax-H3、Seedance-2.5 などを利用できます。台本と動画の生成を 1 か所で完結でき、個別のアカウント登録や連携は不要です。<br>
+      🚀 <strong>200 以上の AI モデル、新モデルはリリース当日から利用可能</strong>: DeepSeek V4.1、Kimi K3、Qwen 3.8 Max、GLM 5.3 などを 1 つのプラットフォームで利用できます。<br>
+      💰 <strong>上場企業 UCloud による運営で、透明な課金とコスト管理</strong>: API キーごとにコストを追跡し、詳細な利用履歴を確認できます。<br>
+      🎁 <strong>MoneyPrinterTurbo ユーザー限定特典</strong>: <a href="https://www.ucloud.cn/site/active/astraflow?ytag=geo_waituo_Money">紹介リンク</a>から登録すると新規ユーザー向けクレジットを受け取り、すぐに利用を開始できます！ <a href="https://f.howxm.com/xs/u/HVFW5X8EIYV1">50 元分のコンピュートクレジットを受け取る</a>。
     </td>
   </tr>
   <tr>
@@ -174,7 +202,7 @@
 ### ナレーション・字幕・BGM
 
 - [x] 自動ナレーション、音声ファイルのアップロード、音声なしの 3 つの方式に対応し、音声サンプルとナレーション全体をプレビュー可能
-- [x] **Edge TTS（無料・API キー不要）**、Azure Speech、SiliconFlow、Google Gemini、Xiaomi MiMo、MiniMax、ElevenLabs、Chatterbox、Kokoro、Fish Audio などの音声サービスに対応
+- [x] **Edge TTS（無料・API キー不要）**、Azure Speech、SiliconFlow、Google Gemini、Xiaomi MiMo、MiniMax、ElevenLabs、Chatterbox、Kokoro、Fish Audio、ModelBest VoxCPM などの音声サービスに対応
 - [x] 字幕を自動生成し、フォント、位置、色、サイズ、縁取り、背景スタイルを調整可能
 - [x] ランダム、ローカル、AI 生成の BGM に対応し、音量を個別に調整可能
 
@@ -235,6 +263,86 @@
 
 - 主にクラウド LLM、クラウド TTS、オンライン素材ソースを利用する場合は、GPU よりも CPU とメモリのほうが重要です
 - `faster-whisper`、一括生成、負荷の高いローカル処理を利用する場合は、GPU によってスループットが目に見えて向上します
+
+## 必要な API と推定コスト 💰
+
+### 動画が作られる流れ
+
+各生成タスクは同じパイプラインで実行されます（`app/services/task.py` を参照）。各工程はそれぞれ 1 つの設定可能なサービスに対応しており、そのサービスによって費用が発生するかどうかが決まります:
+
+| # | 工程 | 使用するサービス | 設定キー |
+| - | ---- | ---------------- | -------- |
+| 1 | 台本 | LLM（`generate_script`）。独自の台本を指定した場合はスキップ | `llm_provider` + `<provider>_api_key` |
+| 2 | 検索キーワード | LLM（`generate_terms`）。キーワードを指定した場合や `local` 素材を使う場合はスキップ | 同上 |
+| 3 | ナレーション | TTS プロバイダー | WebUI の `tts_server`、`[azure]`、`[elevenlabs]`、... |
+| 4 | 字幕 | Edge TTS のタイムスタンプまたはローカル Whisper | `subtitle_provider` |
+| 5 | 映像素材 | ストック素材の検索または AI 生成 | `video_source` + 対応するキー |
+| 6 | BGM | ローカルファイルまたは AI 音楽 | `bgm_type`、`sonilo_api_key`、`[elevenlabs]` |
+| 7 | レンダリング | ローカルの FFmpeg / MoviePy | `ffmpeg_path`、`video_codec` |
+| 8 | 公開（任意） | Upload-Post | `upload_post_*` |
+
+### 必要な API
+
+既定の `pexels` 素材ソースを使う標準的な実行では、**2 つの API キー**が必要です:
+
+| API | 必須？ | 用途 | 無料の選択肢 | 取得先 |
+| --- | ------ | ---- | ------------ | ------ |
+| **LLM プロバイダー**（いずれか 1 つ） | ✅ 必須* | 台本と素材検索キーワードの作成 | Ollama（ローカル）、OpenRouter の無料モデル、Gemini の無料枠、Pollinations、または既存のサブスクリプションでの Claude Code | [台本とモデルプロバイダー](#台本とモデルプロバイダー)を参照 |
+| **素材ソース**（いずれか 1 つ） | ✅ 必須** | 映像クリップの検索または生成 | Pexels と Pixabay は無料 | [Pexels](https://www.pexels.com/api/) · [Pixabay](https://pixabay.com/api/docs/) |
+| TTS 音声 | ⚪ 任意 | ナレーション | **Edge TTS**（WebUI の `Azure TTS V1`）は無料で、キー不要 | Azure Speech、ElevenLabs、MiniMax、Fish Audio、SiliconFlow、... |
+| 字幕 | ⚪ 任意 | 字幕のタイミング | `edge` モード（既定）と `whisper`（ローカル実行）はどちらも無料 | — |
+| AI BGM | ⚪ 任意 | 動画に合わせて生成される音楽 | `resource/songs` に同梱の楽曲は無料 | [Sonilo](https://platform.sonilo.com/dashboard) · [ElevenLabs Music](https://elevenlabs.io/app/settings/api-keys) |
+| TwelveLabs | ⚪ 任意 | 意味に基づく素材のランク付けと動画 QA | — | [TwelveLabs](https://playground.twelvelabs.io/) |
+| Upload-Post | ⚪ 任意 | TikTok、Instagram、YouTube への自動公開 | — | [Upload-Post](https://upload-post.com/) |
+
+\* LLM を省略できるのは、独自の台本**と**独自の検索キーワードの**両方**を指定した場合（API/CLI）、または独自の台本を指定して `video_source = "local"` を使う場合のみです。<br>
+\** 独自の画像・動画で `video_source = "local"` を使う場合、素材ソースのキーは不要です。
+
+> **費用ゼロの最小構成:** 無料の Pexels キー、無料またはローカルの LLM（Ollama など）、Edge TTS、`edge` 字幕、同梱の BGM。
+
+### 動画 1 本あたりの推定コスト
+
+以下の見積もりは、英語約 150 語（≈ 900 文字、中国語なら約 250 文字）の **60 秒動画**、`video_clip_duration = 5`（つまり約 **12 クリップ**）、`video_count = 1` を前提としています。レンダリングはローカルで行われるため、自分のハードウェアと電気代以外の費用はかかりません。
+
+**工程ごとのコスト**
+
+| 工程 | 無料の選択肢 | 60 秒動画 1 本あたりの一般的な有料コスト |
+| ---- | ------------ | ---------------------------------------- |
+| LLM（2 回の呼び出し、合計約 1.5k–3k トークン） | Ollama / 無料枠のモデル: $0 | DeepSeek、Kimi、Qwen、GPT-mini クラス、Gemini Flash クラスのモデルなら通常 **< $0.01**。最上位モデルでは数セント |
+| ナレーション（≈ 900 文字） | Edge TTS: $0 | Azure Speech ニューラル: 約 $0.015 · ElevenLabs / MiniMax HD: プランとモデルにより約 $0.05–0.30 |
+| 字幕 | `edge` / ローカル Whisper: $0 | — |
+| ストック素材（Pexels / Pixabay） | $0 | Coverr: プランによる |
+| AI 画像（`openai_image`、約 12 枚） | ローカルの ComfyUI/SD ゲートウェイ: $0 | 約 $0.07（APIMart などの中継サービスで $0.006/枚の場合）から、公式のプレミアムエンドポイントでは $0.50 以上 |
+| AI 動画クリップ（≈ 60 秒分の素材） | — | **圧倒的に最大のコスト。** 次の表を参照 |
+| AI BGM（Sonilo / ElevenLabs Music） | 同梱の楽曲: $0 | プロバイダーにより生成ごとに課金 |
+
+**AI 動画素材（生成クリップ 60 秒分）**
+
+AI 動画ソースは、ナレーションの長さを満たすまでクリップを 1 本ずつ生成します。有料クリップの本数はおよそ `ceil(ナレーションの秒数 × video_count / video_clip_duration)` で、WebUI はこの見積もりを表示し、送信前に課金の確認を求めます。
+
+| ソース / モデル | 参考価格 | ≈ 60 秒あたりのコスト |
+| --------------- | -------- | --------------------- |
+| Metaso MiniMax H3 – 768P | CNY 0.09 / 秒 | ≈ CNY 5.4（≈ $0.75） |
+| Metaso MiniMax H3 – 2K | CNY 0.15 / 秒 | ≈ CNY 9（≈ $1.25） |
+| Shengsuan Cloud – Jimeng 3.0 720p | CNY 0.23 / 秒 | ≈ CNY 13.8（≈ $1.9） |
+| Shengsuan Cloud – Wan 2.2 fast | CNY 0.35（480P）– 0.77（720P）/ クリップ | 12 クリップで ≈ CNY 4.2–9.2 |
+| Shengsuan Cloud – Veo 3.1 Fast | CNY 0.70 / 秒 | ≈ CNY 42（≈ $5.8） |
+| Shengsuan Cloud – Vidu Q3 Pro | CNY 0.44–1.00 / 秒 | ≈ CNY 26–60 |
+| Shengsuan Cloud – Veo 3 / Veo 3.1 | CNY 1.40 / 秒 | ≈ CNY 84（≈ $11.7） |
+| Shengsuan Cloud – Kling v2 / v2.1 Master | 5 秒クリップあたり CNY 10 | ≈ CNY 120（≈ $16.7） |
+| Volcano Engine Seedance、WaveSpeed、OFox | モデル、解像度、長さに応じてクリップごとに課金 | 各プロバイダーの料金ページを確認 |
+
+**構成別のまとめ**
+
+| 構成 | サービス | ≈ 60 秒動画 1 本あたりのコスト |
+| ---- | -------- | ------------------------------ |
+| 🆓 無料 | Pexels/Pixabay + Ollama または無料枠の LLM + Edge TTS + 同梱の BGM | **$0** |
+| 💡 低予算（最初はこちらを推奨） | Pexels + 低価格のクラウド LLM（DeepSeek、Kimi、...）+ Edge TTS | **< $0.01** |
+| 🎙️ 高品質ナレーション | 低予算 + Azure Speech / ElevenLabs / MiniMax TTS | **≈ $0.02–0.35** |
+| 🖼️ AI 画像 | 高品質ナレーション + `openai_image` | **≈ $0.10–0.90** |
+| 🎬 AI 動画 | 上記いずれかの構成 + AI 動画ソース | モデルにより **≈ $0.75–17+** |
+
+> ⚠️ 価格は目安としての参考値です（米ドル換算は約 CNY 7.2 = $1）。プロバイダーの料金、無料枠、キャンペーンは頻繁に変更されます。必ず各プロバイダーの最新の料金ページを確認してください。最終的な請求額は実際の利用量に基づきます。一括出力（`video_count > 1`）、長い台本、短い `video_clip_duration`、音声プレビューの繰り返しはいずれもコストを比例して増加させます。ナレーション全体のプレビューでは、選択した TTS サービスが再度呼び出されます。
 
 ## クイックスタート 🚀
 
@@ -391,6 +499,8 @@ uv run python main.py
 python main.py
 ```
 
+> API はデフォルトで `127.0.0.1` のみで待ち受けます。ほかの端末から呼び出す場合は、`config.toml` で `listen_host = "0.0.0.0"` **と**十分に強力な `api_key` の両方を設定し、`x-api-key` ヘッダーでキーを送信してください。`api_key` が空の間は `localhost` / `127.0.0.1` 宛てのリクエストのみを受け付けるため、LAN 内の端末による有料 API クレジットの不正利用や、悪意のある Web サイトによる DNS リバインディング攻撃を防げます。キーなしで追加のホスト名を信頼するには、`config.toml` の `allowed_hosts` または環境変数 `MPT_ALLOWED_HOSTS` を設定してください。
+
 #### ④ CLI のみのモード（ブラウザー不要） ⌨️
 
 ブラウザーやポートフォワーディングが利用できない場合は、コマンドラインから直接動画を生成できます。最もシンプルな生成コマンドは次のとおりです:
@@ -398,6 +508,8 @@ python main.py
 ```shell
 uv run python cli.py --video-subject "How AI is changing everyday life"
 ```
+
+字幕スタイルとナレーションのオプションは、**明示的な CLI オプション > `config.toml` に保存された `[ui]` の値 > 組み込みの既定値**の順に解決されます。BGM、動画の本数、段落数などその他の生成設定は WebUI から引き継がれません。WebUI でアップロード音声を使う設定にしている場合、アップロードしたパスは保存されないため、`--custom-audio-file` を明示的に指定してください。
 
 コマンドの完全なリファレンス、パラメーターの説明、使い方については、次を実行してください:
 
@@ -409,22 +521,35 @@ uv run python cli.py --help
 JSONL マニフェストを指定します。CLI オプションが共通の既定値となり、各オブジェクトで
 `VideoParams` フィールドを上書きできます。
 
+```json
+[
+  { "video_subject": "How solar panels work" },
+  { "video_subject": "How wind turbines work", "video_aspect": "16:9" }
+]
+```
+
 ```shell
 uv run python cli.py --batch-file ./tasks.json --stop-at video
 ```
 
-マニフェストは最大 100 タスク、1 MiB までです。最初のタスクを開始する前に全項目と
-ローカルファイルを検証し、個別タスクが失敗しても後続タスクを続行して最後に JSON
-サマリーを出力します。マニフェスト内の相対音声・ローカル素材パスはマニフェストの
-ディレクトリを基準に解決されます。
+マニフェストのパスは現在の作業ディレクトリを基準に解決されます。マニフェスト内の相対的な
+`custom_audio_file` とローカルの `video_materials[].url` はマニフェストのディレクトリを
+基準に解決されますが、CLI の既定値として指定したファイルパスは通常どおり現在の作業
+ディレクトリを基準とします。マニフェストは最大 100 タスク、1 MiB までです。最初のタスクを
+開始する前に全項目とローカルファイルを検証し、個別タスクが実行時に失敗しても後続タスクを
+続行して、最後に JSON サマリーを 1 つ出力します。サマリーには `total`、`succeeded`、
+`failed`、`tasks` が含まれ、各タスクの項目には `index`、`task_id`、`status`、`result`、
+`failed_stage`、`error` が含まれます。
 
 ## ナレーション・字幕・BGM 🎙️
 
 ### 音声合成
 
-WebUI の **Azure TTS V1** は **Edge TTS** を利用しており、無料かつ API キー不要です。MoneyPrinterTurbo は **Azure TTS V2**、**SiliconFlow TTS**、**Google Gemini TTS**、**Xiaomi MiMo TTS**、**ElevenLabs TTS**、セルフホストの **Chatterbox TTS**、セルフホストの **Kokoro TTS**、**Fish Audio TTS**、および音声なしモードにも対応しています。
+WebUI の **Azure TTS V1** は **Edge TTS** を利用しており、無料かつ API キー不要です。MoneyPrinterTurbo は **Azure TTS V2**、**SiliconFlow TTS**、**Google Gemini TTS**、**Xiaomi MiMo TTS**、**MiniMax TTS**、**ElevenLabs TTS**、セルフホストの **Chatterbox TTS**、セルフホストの **Kokoro TTS**、**Fish Audio TTS**、[ModelBest VoxCPM TTS](https://platform.modelbest.cn/console/docs/api/audio)、および音声なしモードにも対応しています。
 
 WebUI でプロバイダーと音声を選択し、必要な認証情報については画面の案内に従ってください。Edge TTS に API キーは不要です。[Azure TTS V2](https://portal.azure.com/) やその他のクラウドプロバイダーでは、それぞれのプラットフォームで発行した認証情報が必要です。利用可能な Edge TTS の音声は[音声リスト](./docs/voice-list.txt)で確認できます。
+
+ModelBest VoxCPM には、API キーと `speech_synthesis` 機能を持つモデル ID が必要です。SSE レスポンスで WAV 音声がストリーミングされ、MoneyPrinterTurbo が動画パイプラインで使用する MP3 に自動変換します。この連携は既定の音声による標準的なテキスト読み上げに対応しており、参照音声による音声クローンにはまだ対応していません。
 
 ### 字幕生成
 

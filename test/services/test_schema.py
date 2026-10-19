@@ -114,5 +114,39 @@ class TestVideoParams(unittest.TestCase):
             )
 
 
+class TestRequestUpperBounds(unittest.TestCase):
+    """异常大的参数会耗尽内存或付费额度，必须在入口处拒绝。"""
+
+    def test_oversized_video_params_are_rejected(self):
+        oversized = {
+            "font_size": 1_000_000,
+            "stroke_width": 1_000.0,
+            "n_threads": 100_000,
+            "video_count": 1_000_000,
+            "video_clip_duration": 10_000,
+            "video_script": "x" * (schema.MAX_VIDEO_SCRIPT_LENGTH + 1),
+        }
+        for field, value in oversized.items():
+            with self.subTest(field=field):
+                with self.assertRaises(ValidationError):
+                    VideoParams(video_subject="x", **{field: value})
+        with self.assertRaises(ValidationError):
+            VideoParams(video_subject="x" * (schema.MAX_VIDEO_SUBJECT_LENGTH + 1))
+        with self.assertRaises(ValidationError):
+            schema.VideoTermsRequest(amount=10_000)
+        with self.assertRaises(ValidationError):
+            SubtitleRequest(video_script="x", font_size=1_000_000)
+
+    def test_webui_ranges_remain_valid(self):
+        params = VideoParams(
+            video_subject="x",
+            font_size=100,
+            stroke_width=10.0,
+            video_count=5,
+            video_clip_duration=15,
+        )
+        self.assertEqual(params.font_size, 100)
+
+
 if __name__ == "__main__":
     unittest.main()

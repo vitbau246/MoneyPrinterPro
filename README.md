@@ -1,3 +1,10 @@
+> **Nguồn / Source:** bản tuỳ biến dựa trên dự án gốc **MoneyPrinterTurbo** của Harry –
+> https://github.com/harry0703/MoneyPrinterTurbo (giấy phép MIT, giữ nguyên trong `LICENSE`).
+> Phần bổ sung trong bản này: bot Telegram, chế độ "Tạo nhanh" trên web (cùng chức năng với bot),
+> ảnh GIF có chữ, thư viện thành phẩm, lập lịch và tự động đăng Facebook Reels / TikTok / YouTube
+> Shorts. Bản này không kết nối tới kho gốc (không tự cập nhật, không kiểm tra phiên bản).
+> This is a customised fork of the original project above (MIT License).
+
 <div align="center">
 
 # MoneyPrinterTurbo 💸
@@ -14,7 +21,7 @@
 <a href="https://trendshift.io/repositories/8731" target="_blank"><img src="https://trendshift.io/api/badge/repositories/8731" alt="harry0703%2FMoneyPrinterTurbo | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
 <a href="https://www.star-history.com/harry0703/moneyprinterturbo"><img src="https://api.star-history.com/badge?repo=harry0703/MoneyPrinterTurbo" alt="Star History Rank" style="height: 55px;" height="55"/></a>
 
-简体中文 | [English](README-en.md) | [日本語](README-ja.md) | [版本发布](https://github.com/harry0703/MoneyPrinterTurbo/releases) | [问题反馈](https://github.com/harry0703/MoneyPrinterTurbo/issues)
+简体中文 | [English](README-en.md) | [日本語](README-ja.md) | [Tiếng Việt](README-vi.md) | [版本发布](https://github.com/harry0703/MoneyPrinterTurbo/releases) | [问题反馈](https://github.com/harry0703/MoneyPrinterTurbo/issues)
 
 </div>
 
@@ -97,7 +104,7 @@
       ⚡ 超低成本与稳定调度：价格低至官方 1 折，模型倍率与调用明细全程透明；多路供应动态调度，告别限流与断连困扰。<br>
       🧠 全系大模型完美驱动脚本：全面覆盖 OpenAI、Claude、Google Gemini、DeepSeek、通义千问（Qwen）等主流 LLM，兼容 OpenAI 标准接口，为 MoneyPrinterTurbo 的文案生成与素材关键词提炼提供低延迟、高并发支持。<br>
       🎨 前沿多模态生态：全面接入 FLUX、Midjourney、Seedance、可灵（Kling）、Sora、Luma 等顶级生图与视频模型，满足下一代 AI 视频生成需求。<br>
-      🎁 MoneyPrinterTurbo 用户专属福利：通过 <a href="https://infistar.cc/register?aff=6T4EYXP2&amp;ref_source=link">专属推广链接</a> 注册即享 [专属赠送额度 / 首充特惠]，开箱即用！
+      🎁 MoneyPrinterTurbo 用户专属福利：通过 <a href="https://infistar.cc/register?aff=6T4EYXP2&amp;ref_source=link">专属推广链接</a> 注册，即可查看 Infistar.ai 提供的最新专属优惠。
     </td>
   </tr>
   <tr>
@@ -257,6 +264,86 @@
 - 如果你主要依赖云端 LLM、云端 TTS 和在线素材源，CPU 与内存比 GPU 更重要
 - 如果你启用 `faster-whisper`、批量生成或更重的本地处理链路，GPU 会明显提升速度
 
+## 必需 API 与预估成本 💰
+
+### 视频是如何生成的
+
+每个生成任务都会执行同一条流水线（参见 `app/services/task.py`）。每个环节对应一个可配置的服务，该环节是否产生费用取决于所选的服务：
+
+| # | 环节 | 使用的服务 | 配置项 |
+| - | ---- | ---------- | ------ |
+| 1 | 脚本 | LLM（`generate_script`），提供自定义脚本时跳过 | `llm_provider` + `<provider>_api_key` |
+| 2 | 搜索关键词 | LLM（`generate_terms`），提供自定义关键词或使用 `local` 素材时跳过 | 同上 |
+| 3 | 配音 | TTS 服务 | WebUI 中的 `tts_server`、`[azure]`、`[elevenlabs]` 等 |
+| 4 | 字幕 | Edge TTS 时间戳或本地 Whisper | `subtitle_provider` |
+| 5 | 素材 | 素材库搜索或 AI 生成 | `video_source` + 对应的 Key |
+| 6 | 背景音乐 | 本地文件或 AI 音乐 | `bgm_type`、`sonilo_api_key`、`[elevenlabs]` |
+| 7 | 渲染 | 本地 FFmpeg / MoviePy | `ffmpeg_path`、`video_codec` |
+| 8 | 发布（可选） | Upload-Post | `upload_post_*` |
+
+### 必需的 API
+
+使用默认的 `pexels` 素材源进行常规生成时，需要 **两个 API Key**：
+
+| API | 是否必需 | 用途 | 免费方案 | 获取地址 |
+| --- | -------- | ---- | -------- | -------- |
+| **LLM 服务**（任选其一） | ✅ 必需* | 撰写脚本和素材搜索关键词 | Ollama（本地）、OpenRouter 免费模型、Gemini 免费额度、Pollinations，或使用已有订阅的 Claude Code | 参见 [脚本与模型服务](#脚本与模型服务) |
+| **素材源**（任选其一） | ✅ 必需** | 搜索或生成视频画面片段 | Pexels 和 Pixabay 免费 | [Pexels](https://www.pexels.com/api/) · [Pixabay](https://pixabay.com/api/docs/) |
+| TTS 配音 | ⚪ 可选 | 旁白配音 | **Edge TTS**（WebUI 中的 `Azure TTS V1`）免费且无需 Key | Azure Speech、ElevenLabs、MiniMax、Fish Audio、SiliconFlow 等 |
+| 字幕 | ⚪ 可选 | 字幕时间轴 | `edge` 模式（默认）和 `whisper`（本地运行）均免费 | — |
+| AI 背景音乐 | ⚪ 可选 | 生成与视频匹配的音乐 | `resource/songs` 中自带的曲目免费 | [Sonilo](https://platform.sonilo.com/dashboard) · [ElevenLabs Music](https://elevenlabs.io/app/settings/api-keys) |
+| TwelveLabs | ⚪ 可选 | 素材语义排序与视频质检 | — | [TwelveLabs](https://playground.twelvelabs.io/) |
+| Upload-Post | ⚪ 可选 | 自动发布到 TikTok、Instagram、YouTube | — | [Upload-Post](https://upload-post.com/) |
+
+\* 只有在 **同时** 提供自定义脚本 **和** 自定义搜索关键词（API/CLI），或提供自定义脚本并使用 `video_source = "local"` 时，才可以不配置 LLM。<br>
+\** 使用 `video_source = "local"` 并提供自己的图片和视频时，无需素材源 Key。
+
+> **最低零成本方案：** 免费的 Pexels Key、免费或本地 LLM（如 Ollama）、Edge TTS、`edge` 字幕，以及自带的背景音乐。
+
+### 单个视频的预估成本
+
+以下估算基于一个 **60 秒视频**：约 150 个英文单词（≈ 900 个字符，约合 250 个汉字），`video_clip_duration = 5`（即约 **12 个片段**），`video_count = 1`。渲染在本地完成，除自有硬件和电费外不产生其他费用。
+
+**各环节成本**
+
+| 环节 | 免费方案 | 每个 60 秒视频的典型付费成本 |
+| ---- | -------- | ---------------------------- |
+| LLM（2 次调用，合计约 1.5k–3k Token） | Ollama / 免费额度模型：$0 | 使用 DeepSeek、Kimi、Qwen、GPT-mini 级或 Gemini Flash 级模型通常 **< $0.01**；顶级模型约几美分 |
+| 配音（≈ 900 个字符） | Edge TTS：$0 | Azure Speech 神经语音：约 $0.015 · ElevenLabs / MiniMax HD：约 $0.05–0.30，取决于套餐和模型 |
+| 字幕 | `edge` / 本地 Whisper：$0 | — |
+| 库存素材（Pexels / Pixabay） | $0 | Coverr：取决于套餐 |
+| AI 图片（`openai_image`，约 12 张） | 本地 ComfyUI/SD 网关：$0 | 约 $0.07（通过 APIMart 等中转平台按 $0.006/张计）至官方高端接口的 $0.50+ |
+| AI 视频片段（≈ 60 秒素材） | — | **迄今为止成本最高的环节**，详见下表 |
+| AI 背景音乐（Sonilo / ElevenLabs Music） | 自带曲目：$0 | 由服务商按生成次数计费 |
+
+**AI 视频素材（60 秒生成片段）**
+
+AI 视频素材源会逐段生成片段，直到覆盖整段配音。付费片段数约为 `ceil(配音秒数 × video_count / video_clip_duration)`，WebUI 会显示该估算值，并在提交任何任务前请你确认费用。
+
+| 素材源 / 模型 | 参考价格 | 60 秒约合成本 |
+| ------------- | -------- | ------------- |
+| 秘塔 MiniMax H3 – 768P | ¥0.09 / 秒 | ≈ ¥5.4（≈ $0.75） |
+| 秘塔 MiniMax H3 – 2K | ¥0.15 / 秒 | ≈ ¥9（≈ $1.25） |
+| 胜算云 – 即梦 3.0 720p | ¥0.23 / 秒 | ≈ ¥13.8（≈ $1.9） |
+| 胜算云 – Wan 2.2 fast | ¥0.35（480P）– 0.77（720P）/ 段 | 12 段约 ¥4.2–9.2 |
+| 胜算云 – Veo 3.1 Fast | ¥0.70 / 秒 | ≈ ¥42（≈ $5.8） |
+| 胜算云 – Vidu Q3 Pro | ¥0.44–1.00 / 秒 | ≈ ¥26–60 |
+| 胜算云 – Veo 3 / Veo 3.1 | ¥1.40 / 秒 | ≈ ¥84（≈ $11.7） |
+| 胜算云 – Kling v2 / v2.1 Master | ¥10 / 每 5 秒片段 | ≈ ¥120（≈ $16.7） |
+| 火山引擎 Seedance、WaveSpeed、OFox | 按模型、分辨率和时长逐段计费 | 请查看服务商定价页面 |
+
+**按方案汇总**
+
+| 方案 | 服务组合 | 每个 60 秒视频约合成本 |
+| ---- | -------- | ---------------------- |
+| 🆓 免费 | Pexels/Pixabay + Ollama 或免费额度 LLM + Edge TTS + 自带音乐 | **$0** |
+| 💡 经济（推荐入门） | Pexels + 低价云端 LLM（DeepSeek、Kimi 等）+ Edge TTS | **< $0.01** |
+| 🎙️ 高品质配音 | 经济方案 + Azure Speech / ElevenLabs / MiniMax TTS | **≈ $0.02–0.35** |
+| 🖼️ AI 图片 | 高品质配音方案 + `openai_image` | **≈ $0.10–0.90** |
+| 🎬 AI 视频 | 以上任一方案 + AI 视频素材源 | **≈ $0.75–17+**，取决于模型 |
+
+> ⚠️ 以上价格仅为参考值（美元按约 ¥7.2 = $1 换算）。服务商的价格、免费额度和促销活动经常变动，请始终以服务商当前定价页面为准，最终费用以实际用量为准。批量输出（`video_count > 1`）、更长的脚本、更短的 `video_clip_duration` 以及反复试听音色都会按比例增加成本。完整配音预览会再次调用所选的 TTS 服务。
+
 ## 快速开始 🚀
 
 ### 推荐使用方式
@@ -294,6 +381,10 @@
 下载后，建议先**双击执行** `update.bat` 更新到**最新代码**，然后双击 `start.bat` 启动
 
 启动后，会自动打开浏览器（如果打开是空白，建议换成 **Chrome** 或者 **Edge** 打开）
+
+### macOS / Linux
+
+请参考下方的本地部署或 Docker 部署说明。
 
 ## 安装部署 📥
 
@@ -414,6 +505,8 @@ uv run python main.py
 python main.py
 ```
 
+> API 默认只监听 `127.0.0.1`。如需让其他设备调用，请在 `config.toml` 中同时设置 `listen_host = "0.0.0.0"` **和**足够复杂的 `api_key`，并在请求头 `x-api-key` 中携带该 Key。`api_key` 为空时，API 只接受访问 `localhost` / `127.0.0.1` 的请求，以防止局域网设备滥用你的付费 API 额度，以及恶意网页通过 DNS 重绑定调用 API。如需在免 Key 状态下信任其他主机名，可在 `config.toml` 中设置 `allowed_hosts`，或设置环境变量 `MPT_ALLOWED_HOSTS`。
+
 #### ④ 纯命令行方式（无浏览器）⌨️
 
 如果你无法使用浏览器或端口转发，可以直接在命令行生成视频。最简单的完整视频生成命令如下：
@@ -436,13 +529,23 @@ uv run python cli.py --help
 如需顺序执行多个任务，可通过 `--batch-file` 提供 UTF-8 JSON 数组或 JSONL
 清单。CLI 参数作为全局默认值，每个对象可覆盖 `VideoParams` 字段：
 
+```json
+[
+  { "video_subject": "太阳能电池板如何工作" },
+  { "video_subject": "风力发电机如何工作", "video_aspect": "16:9" }
+]
+```
+
 ```shell
 uv run python cli.py --batch-file ./tasks.json --stop-at video
 ```
 
-清单最多包含 100 个任务且不超过 1 MiB。所有条目会在第一个任务启动前完成
-参数与本地文件预检；单个任务运行失败不会阻止后续条目，结束后会输出统一的
-JSON 汇总。清单中的相对自定义音频与本地素材路径以清单目录为基准。
+清单文件路径以当前工作目录为基准解析。清单中相对的 `custom_audio_file` 和本地
+`video_materials[].url` 路径以清单所在目录为基准；作为 CLI 默认值传入的文件路径
+仍按当前工作目录解析。清单最多包含 100 个任务且不超过 1 MiB。所有条目会在第一个
+任务启动前完成参数与本地文件预检；单个任务运行失败不会阻止后续条目，结束后会输出
+统一的 JSON 汇总。汇总包含 `total`、`succeeded`、`failed` 和 `tasks`；每个任务条目
+包含 `index`、`task_id`、`status`、`result`、`failed_stage` 和 `error`。
 
 ## 配音、字幕与配乐 🎙️
 

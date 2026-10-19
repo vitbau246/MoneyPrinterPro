@@ -378,7 +378,7 @@ class TestVideoControllerDeleteHTTP(unittest.TestCase):
         self.original_app_config = dict(config.app)
         # 这些用例只验证任务删除协议；鉴权行为由独立测试覆盖。
         config.app["api_key"] = ""
-        self.client = TestClient(asgi.app)
+        self.client = TestClient(asgi.app, base_url="http://localhost")
 
     def tearDown(self):
         config.app.clear()

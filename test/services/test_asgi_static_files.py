@@ -14,7 +14,7 @@ class TestTaskStaticFiles(unittest.TestCase):
         self.original_app_config = dict(config.app)
         # 普通静态文件测试验证默认开放模式，不能依赖开发者本机是否启用了 Key。
         config.app["api_key"] = ""
-        self.client = TestClient(asgi.app)
+        self.client = TestClient(asgi.app, base_url="http://localhost")
 
     def tearDown(self):
         config.app.clear()

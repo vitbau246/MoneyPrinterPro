@@ -91,7 +91,9 @@ def root_dir():
 
 
 def storage_dir(sub_dir: str = "", create: bool = False):
-    d = os.path.join(root_dir(), "storage")
+    # MPT_STORAGE_DIR đặt thư mục dữ liệu khác. Gói test dùng biến này để không ghi
+    # vào storage thật (xem test/__init__.py).
+    d = os.environ.get("MPT_STORAGE_DIR") or os.path.join(root_dir(), "storage")
     if sub_dir:
         d = os.path.join(d, sub_dir)
     if create and not os.path.exists(d):

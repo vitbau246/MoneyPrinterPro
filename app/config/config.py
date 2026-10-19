@@ -13,7 +13,10 @@ from loguru import logger
 from app import __version__
 
 root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
-config_file = f"{root_dir}/config.toml"
+_DEFAULT_CONFIG_FILE = f"{root_dir}/config.toml"
+# MPT_CONFIG_FILE trỏ cấu hình sang file khác. Gói test đặt biến này để không bao giờ
+# đọc hay ghi config.toml thật (xem test/__init__.py).
+config_file = os.environ.get("MPT_CONFIG_FILE") or _DEFAULT_CONFIG_FILE
 _CONTAINER_CGROUP_MARKERS = ("docker", "containerd", "kubepods", "libpod", "podman")
 _DOCKER_HOST_GATEWAY_NAME = "host.docker.internal"
 _config_save_lock = threading.RLock()
@@ -473,6 +476,20 @@ def load_config():
     return _load_toml_config(config_file)
 
 
+def _refuse_real_config_during_tests():
+    """
+    Khoá an toàn: khi chạy test (MPT_TESTING=1) không bao giờ ghi config.toml thật.
+
+    Ngày 06/10/2026, luồng lưu cấu hình chạy nền của WebUI đã ghi cấu hình giả của
+    test đè lên config.toml thật (video_source thành "pexels"). Gói test đã trỏ
+    config sang file tạm; nếu có test nào trỏ ngược về file thật thì báo lỗi ngay.
+    """
+    if os.environ.get("MPT_TESTING") == "1" and os.path.abspath(
+        config_file
+    ) == os.path.abspath(_DEFAULT_CONFIG_FILE):
+        raise RuntimeError(f"tests must not write the real config file: {config_file}")
+
+
 def save_config():
     """
     原子保存运行时配置。
@@ -490,6 +507,7 @@ def save_config():
     主要用于避免多标签页或快速 rerun 时损坏配置文件。
     """
     with _config_save_lock:
+        _refuse_real_config_during_tests()
         config_to_save = dict(_cfg)
         config_to_save["app"] = dict(app)
         config_to_save["azure"] = dict(azure)
@@ -516,10 +534,12 @@ def save_config():
 
         temp_path = ""
         try:
+            # File tạm nằm cạnh file đích để os.replace luôn cùng ổ đĩa, kể cả khi
+            # MPT_CONFIG_FILE trỏ ra ngoài thư mục dự án.
             fd, temp_path = tempfile.mkstemp(
                 prefix=".config-",
                 suffix=".toml.tmp",
-                dir=root_dir,
+                dir=os.path.dirname(os.path.abspath(config_file)),
             )
             with os.fdopen(fd, mode="w", encoding="utf-8") as f:
                 f.write(serialized_config)
@@ -546,6 +566,53 @@ def save_config():
                 os.remove(temp_path)
 
 
+def reload_config():
+    """
+    Đọc lại config.toml vào các mục cấu hình đang dùng (giữ nguyên object).
+
+    Dành cho tiến trình chỉ đọc cấu hình như bot Telegram: thiết lập người dùng vừa
+    chỉnh trên WebUI (giọng đọc, phụ đề, nhạc nền, nguồn video, LLM...) có hiệu lực
+    từ yêu cầu kế tiếp mà không phải khởi động lại bot. Không gọi trong WebUI, vì ở
+    đó bộ nhớ mới là bản mới nhất. File đang lỗi cú pháp thì giữ cấu hình cũ.
+    Trả về True nếu đã nạp lại.
+    """
+    try:
+        fresh = _load_toml_config(config_file)
+    except Exception as exc:
+        logger.warning(f"keep current config, cannot reload {config_file}: {exc}")
+        return False
+    sections = {
+        "app": app,
+        "whisper": whisper,
+        "proxy": proxy,
+        "azure": azure,
+        "siliconflow": siliconflow,
+        "minimax_tts": minimax_tts,
+        "elevenlabs": elevenlabs,
+        "chatterbox": chatterbox,
+        "kokoro": kokoro,
+        "fish_audio": fish_audio,
+        "voxcpm": voxcpm,
+        "ui": ui,
+    }
+    def replace_keys(target: dict, values: dict) -> None:
+        # Đổi từng khoá thay vì xoá trắng rồi ghi lại: luồng khác đang đọc cấu hình
+        # (ví dụ ảnh GIF chạy song song với video) không bao giờ thấy mục rỗng.
+        for key in [key for key in target if key not in values]:
+            del target[key]
+        for key, value in values.items():
+            if target.get(key, _MISSING) != value:
+                target[key] = value
+
+    with _config_save_lock:
+        for name, section in sections.items():
+            replace_keys(section, fresh.get(name) or {})
+        # whisper và proxy là dict thường lấy thẳng từ _cfg; giữ đúng object đang dùng.
+        fresh.update({name: sections[name] for name in ("whisper", "proxy") if name in fresh})
+        replace_keys(_cfg, fresh)
+    return True
+
+
 _cfg = load_config()
 app = _SynchronizedConfig(_cfg.get("app", {}))
 whisper = _cfg.get("whisper", {})
@@ -570,12 +637,14 @@ ui = _SynchronizedConfig(
 hostname = socket.gethostname()
 
 log_level = _cfg.get("log_level", "DEBUG")
-listen_host = _cfg.get("listen_host", "0.0.0.0")
+# 默认仅监听本机。容器内需要 0.0.0.0 时通过 MPT_LISTEN_HOST 覆盖，避免修改
+# 宿主机共享的 config.toml。
+listen_host = os.getenv("MPT_LISTEN_HOST") or _cfg.get("listen_host", "127.0.0.1")
 listen_port = _cfg.get("listen_port", 8080)
 project_name = _cfg.get("project_name", "MoneyPrinterTurbo")
 project_description = _cfg.get(
     "project_description",
-    "<a href='https://github.com/harry0703/MoneyPrinterTurbo'>https://github.com/harry0703/MoneyPrinterTurbo</a>",
+    "Nguồn mã gốc: https://github.com/harry0703/MoneyPrinterTurbo",
 )
 project_version = _cfg.get("project_version", __version__)
 reload_debug = False

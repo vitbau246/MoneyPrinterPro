@@ -13,6 +13,7 @@ import tempfile
 import threading
 import time
 import unicodedata
+import urllib.request
 import wave
 from datetime import datetime, timedelta
 from typing import Union
@@ -21,6 +22,7 @@ from xml.sax.saxutils import escape, unescape
 
 import edge_tts
 import requests
+import urllib3
 from edge_tts import SubMaker
 from edge_tts.srt_composer import Subtitle
 from loguru import logger
@@ -1130,8 +1132,11 @@ def populate_legacy_submaker_with_full_text(
     return sub_maker
 
 
+_USE_DEFAULT_PROXY = object()
+
+
 def create_edge_tts_communicate(
-    text: str, voice_name: str, rate_str: str
+    text: str, voice_name: str, rate_str: str, proxy=_USE_DEFAULT_PROXY
 ) -> edge_tts.Communicate:
     """
     按当前已安装的 edge_tts 版本构造 Communicate 对象。
@@ -1151,7 +1156,51 @@ def create_edge_tts_communicate(
     if "boundary" in communicate_signature.parameters:
         communicate_kwargs["boundary"] = "WordBoundary"
 
+    if proxy is _USE_DEFAULT_PROXY:
+        proxy = _get_edge_tts_proxy()
+    if proxy and "proxy" in communicate_signature.parameters:
+        communicate_kwargs["proxy"] = proxy
+
     return edge_tts.Communicate(text, voice_name, **communicate_kwargs)
+
+
+_EDGE_TTS_HOST = "speech.platform.bing.com"
+
+
+def _get_edge_tts_proxy() -> str | None:
+    """
+    返回 Edge TTS WebSocket 应使用的代理。
+
+    edge_tts 内部的 aiohttp 虽然开启了 trust_env，但只会为 http/https 地址
+    读取 HTTP(S)_PROXY，`wss://` 连接仍然直连。在必须经由代理出网的企业
+    网络中，直连会被防火墙丢弃，表现为每次都 "stream timed out"。因此这里
+    显式取出代理传给 edge_tts：优先使用 config.toml 的 [proxy].https，
+    其次是系统/环境变量代理，并遵守 NO_PROXY。
+    """
+    configured = str((config.proxy or {}).get("https") or "").strip()
+    if configured:
+        return configured
+    if urllib.request.proxy_bypass(_EDGE_TTS_HOST):
+        return None
+    proxies = urllib.request.getproxies()
+    proxy = proxies.get("wss") or proxies.get("https") or proxies.get("all")
+    return str(proxy or "").strip() or None
+
+
+def _get_edge_tts_proxies() -> list[str | None]:
+    """
+    返回 Edge TTS 依次尝试的代理列表。
+
+    企业网络中单个代理可能间歇性不通，可在 config.toml 的 [app] 里配置
+    `edge_tts_proxies = ["http://a:8800", "http://b:8800"]`，按顺序轮换，
+    且只走列表中的代理、不回退直连。未配置时沿用 `_get_edge_tts_proxy()`。
+    放在 [app] 而非 [proxy]，是因为 [proxy] 会被原样传给 requests。
+    """
+    configured = config.app.get("edge_tts_proxies") or []
+    if isinstance(configured, str):
+        configured = [configured]
+    proxies = [str(item).strip() for item in configured if str(item or "").strip()]
+    return proxies or [_get_edge_tts_proxy()]
 
 
 def get_edge_tts_timeout_seconds() -> Union[float, None]:
@@ -1217,12 +1266,16 @@ def _stream_edge_tts_sync_with_timeout(
     thread = threading.Thread(target=_produce_chunks, daemon=True)
     thread.start()
 
+    # 超时按“连续无数据”计算，而不是整段流的总耗时：长文案或经代理的慢网络
+    # 可能需要超过 timeout_seconds 才能传完，但只要仍在持续收到数据就不是
+    # 卡死。每收到一个 chunk 就顺延截止时间，真正卡住时仍会按时失败。
     deadline = time.monotonic() + timeout_seconds
     while True:
         remaining_seconds = deadline - time.monotonic()
         if remaining_seconds <= 0:
             raise TimeoutError(
-                f"edge_tts stream timed out after {timeout_seconds:g}s"
+                f"edge_tts stream timed out after {timeout_seconds:g}s "
+                "without receiving data"
             )
 
         try:
@@ -1233,6 +1286,7 @@ def _stream_edge_tts_sync_with_timeout(
             continue
 
         if item_type == "chunk":
+            deadline = time.monotonic() + timeout_seconds
             on_chunk(payload)
         elif item_type == "error":
             raise payload
@@ -1293,15 +1347,22 @@ def azure_tts_v1(
     voice_name = parse_voice_name(voice_name)
     text = text.strip()
     rate_str = convert_rate_to_percent(voice_rate)
-    for i in range(3):
+    # 每个代理各重试 3 次，失败后轮换到下一个代理。
+    attempts = [(proxy, i) for proxy in _get_edge_tts_proxies() for i in range(3)]
+    for proxy, i in attempts:
         try:
-            logger.info(f"start, voice name: {voice_name}, try: {i + 1}")
+            logger.info(
+                f"start, voice name: {voice_name}, proxy: {proxy or 'direct'}, "
+                f"try: {i + 1}"
+            )
 
             # 这里同时兼容 edge_tts 7.x 和旧版便携包里可能残留的老依赖：
             # 1. 新版支持 `boundary` + `stream_sync()`
             # 2. 旧版不支持 `boundary`，且通常只暴露异步 `stream()`
             ensure_file_path_exists(voice_file)
-            communicate = create_edge_tts_communicate(text, voice_name, rate_str)
+            communicate = create_edge_tts_communicate(
+                text, voice_name, rate_str, proxy=proxy
+            )
             sub_maker = edge_tts.SubMaker()
             timeout_seconds = get_edge_tts_timeout_seconds()
 
@@ -1340,6 +1401,24 @@ def azure_tts_v1(
                         f"{voice_file}, error: {str(remove_error)}"
                     )
     return None
+
+
+# 付费 TTS 的自动重试策略：只在能确定请求没有被服务端处理时重试。读取超时、
+# 连接中途断开或 200 之后的本地解码失败都可能已经计费，自动重试会重复扣费。
+_PAID_TTS_TIMEOUT = (10, 120)
+_TTS_RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
+
+
+def _is_tts_request_error_retryable(exc: Exception) -> bool:
+    """判断请求异常是否发生在请求送达服务端之前（连接阶段），可安全重试。"""
+
+    if isinstance(exc, requests.exceptions.ConnectTimeout):
+        return True
+    if isinstance(exc, requests.exceptions.ConnectionError):
+        reason = exc.args[0] if exc.args else None
+        reason = getattr(reason, "reason", reason)
+        return isinstance(reason, urllib3.exceptions.NewConnectionError)
+    return False
 
 
 def siliconflow_tts(
@@ -1393,42 +1472,48 @@ def siliconflow_tts(
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
     for i in range(3):  # 尝试3次
+        logger.info(
+            f"start siliconflow tts, model: {model}, voice: {voice}, try: {i + 1}"
+        )
         try:
-            logger.info(
-                f"start siliconflow tts, model: {model}, voice: {voice}, try: {i + 1}"
+            response = requests.post(
+                url, json=payload, headers=headers, timeout=_PAID_TTS_TIMEOUT
             )
+        except requests.RequestException as e:
+            logger.error(f"siliconflow tts request failed: {str(e)}")
+            if _is_tts_request_error_retryable(e):
+                continue
+            return None
 
-            response = requests.post(url, json=payload, headers=headers)
+        if response.status_code != 200:
+            logger.error(
+                f"siliconflow tts failed with status code {response.status_code}: "
+                f"{response.text[:200]}"
+            )
+            if response.status_code in _TTS_RETRYABLE_STATUS_CODES:
+                continue
+            return None
 
-            if response.status_code == 200:
-                # 保存音频文件
-                with open(voice_file, "wb") as f:
-                    f.write(response.content)
-
-                sub_maker = ensure_legacy_submaker_fields(SubMaker())
-
-                try:
-                    audio_clip = AudioFileClip(voice_file)
-                    try:
-                        audio_duration = audio_clip.duration
-                    finally:
-                        audio_clip.close()
-                except Exception as e:
-                    logger.warning(f"Failed to read audio duration: {str(e)}")
-                    audio_duration = 10.0
-
-                logger.success(f"siliconflow tts succeeded: {voice_file}")
-                return populate_legacy_submaker_with_full_text(
-                    sub_maker=sub_maker,
-                    text=text,
-                    audio_duration_seconds=audio_duration,
-                )
-            else:
-                logger.error(
-                    f"siliconflow tts failed with status code {response.status_code}: {response.text}"
-                )
+        # 200 之后音频已经生成并计费，不再重试；无法读取时直接失败，
+        # 不能用固定时长冒充成功，否则字幕和画面会与损坏的音频错位。
+        try:
+            with open(voice_file, "wb") as f:
+                f.write(response.content)
+            audio_clip = AudioFileClip(voice_file)
+            try:
+                audio_duration = audio_clip.duration
+            finally:
+                audio_clip.close()
         except Exception as e:
-            logger.error(f"siliconflow tts failed: {str(e)}")
+            logger.error(f"siliconflow tts returned unreadable audio: {str(e)}")
+            return None
+
+        logger.success(f"siliconflow tts succeeded: {voice_file}")
+        return populate_legacy_submaker_with_full_text(
+            sub_maker=ensure_legacy_submaker_fields(SubMaker()),
+            text=text,
+            audio_duration_seconds=audio_duration,
+        )
 
     return None
 
@@ -1991,32 +2076,47 @@ def minimax_tts(text: str, voice_id: str, voice_rate: float, voice_file: str, vo
     }
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     for attempt in range(3):
+        logger.info(f"start MiniMax TTS, model: {model}, voice: {voice_id}, try: {attempt + 1}")
         try:
-            logger.info(f"start MiniMax TTS, model: {model}, voice: {voice_id}, try: {attempt + 1}")
-            response = requests.post(url, json=payload, headers=headers, timeout=120)
-            if response.status_code != 200:
-                logger.error(f"MiniMax TTS failed with status {response.status_code}: {response.text[:200]}")
+            response = requests.post(url, json=payload, headers=headers, timeout=_PAID_TTS_TIMEOUT)
+        except requests.RequestException as exc:
+            logger.error(f"MiniMax TTS request failed: {str(exc)}")
+            if _is_tts_request_error_retryable(exc):
                 continue
+            return None
+        if response.status_code != 200:
+            logger.error(f"MiniMax TTS failed with status {response.status_code}: {response.text[:200]}")
+            if response.status_code in _TTS_RETRYABLE_STATUS_CODES:
+                continue
+            return None
+        try:
             body = response.json()
-            data = body.get("data") or {}
-            base_resp = body.get("base_resp") or {}
-            if base_resp.get("status_code") != 0 or data.get("status") != 2:
-                logger.error(f"MiniMax TTS returned an unsuccessful response: status_code={base_resp.get('status_code')}, audio_status={data.get('status')}")
-                continue
-            audio_hex = data.get("audio")
-            if not isinstance(audio_hex, str) or not audio_hex:
-                logger.error("MiniMax TTS returned empty audio data")
-                continue
-            if len(audio_hex) > _MINIMAX_TTS_MAX_AUDIO_HEX_CHARS:
-                logger.error("MiniMax TTS returned audio data exceeding the supported size")
-                continue
+        except ValueError as exc:
+            logger.error(f"MiniMax TTS returned invalid JSON: {str(exc)}")
+            return None
+        data = body.get("data") or {}
+        base_resp = body.get("base_resp") or {}
+        if base_resp.get("status_code") != 0 or data.get("status") != 2:
+            # 业务层失败（限流、参数错误等）没有返回音频，不会产生合成计费。
+            logger.error(f"MiniMax TTS returned an unsuccessful response: status_code={base_resp.get('status_code')}, audio_status={data.get('status')}")
+            continue
+        audio_hex = data.get("audio")
+        if not isinstance(audio_hex, str) or not audio_hex:
+            logger.error("MiniMax TTS returned empty audio data")
+            continue
+        if len(audio_hex) > _MINIMAX_TTS_MAX_AUDIO_HEX_CHARS:
+            logger.error("MiniMax TTS returned audio data exceeding the supported size")
+            return None
+        # 音频已经合成并计费，本地解码或写入失败时直接失败，不再重新购买。
+        try:
             audio_duration = _write_validated_minimax_audio(bytes.fromhex(audio_hex), voice_file)
-            logger.success(f"MiniMax TTS succeeded: {voice_file}")
-            return populate_legacy_submaker_with_full_text(
-                ensure_legacy_submaker_fields(SubMaker()), text, audio_duration
-            )
-        except (OSError, ValueError, requests.RequestException) as exc:
-            logger.error(f"MiniMax TTS failed: {str(exc)}")
+        except (OSError, ValueError) as exc:
+            logger.error(f"MiniMax TTS returned unreadable audio: {str(exc)}")
+            return None
+        logger.success(f"MiniMax TTS succeeded: {voice_file}")
+        return populate_legacy_submaker_with_full_text(
+            ensure_legacy_submaker_fields(SubMaker()), text, audio_duration
+        )
     return None
 
 
@@ -2062,33 +2162,57 @@ def elevenlabs_tts(
     _NON_RETRYABLE_STATUSES = {"voice_disabled", "voice_access_denied", "unauthorized"}
 
     for i in range(3):
+        logger.info(f"start elevenlabs tts, voice_id: {voice_id}, try: {i + 1}")
         try:
-            logger.info(f"start elevenlabs tts, voice_id: {voice_id}, try: {i + 1}")
             ensure_file_path_exists(voice_file)
-
             response = requests.post(url, json=payload, headers=headers, timeout=60)
-            if response.status_code != 200:
-                error_status = ""
-                try:
-                    detail = response.json().get("detail", {})
-                    if isinstance(detail, dict):
-                        error_status = detail.get("status", "")
-                except Exception:
-                    pass
-
-                if response.status_code in _NON_RETRYABLE_CODES or error_status in _NON_RETRYABLE_STATUSES:
-                    logger.error(
-                        f"ElevenLabs TTS failed (non-retryable) — voice_id: {voice_id}, "
-                        f"status: {response.status_code}, error: {error_status or response.text[:200]}. "
-                        "Please select a different ElevenLabs voice."
-                    )
-                    return None
-
-                logger.error(
-                    f"elevenlabs tts failed with status {response.status_code}: {response.text[:200]}"
-                )
+        except requests.RequestException as e:
+            logger.error(f"elevenlabs tts request failed: {str(e)}")
+            if _is_tts_request_error_retryable(e):
                 continue
+            return None
+        except OSError as e:
+            logger.error(f"elevenlabs tts failed: {str(e)}")
+            return None
 
+        if response.status_code != 200:
+            error_status = ""
+            try:
+                detail = response.json().get("detail", {})
+                if isinstance(detail, dict):
+                    error_status = detail.get("status", "")
+            except Exception:
+                pass
+
+            if response.status_code == 402:
+                # 免费账号无法通过 API 使用语音库（Voice Library）中的声音，
+                # 账号余额或额度不足也会返回 402；重试不会成功。
+                logger.error(
+                    f"ElevenLabs TTS failed (402 payment required) — voice_id: {voice_id}, "
+                    f"error: {response.text[:300]}. Free ElevenLabs plans cannot use "
+                    "Voice Library voices through the API: choose one of your own or "
+                    "default ElevenLabs voices, upgrade the plan, or use another TTS "
+                    "provider such as Azure TTS V1 (Edge, free)."
+                )
+                return None
+
+            if response.status_code in _NON_RETRYABLE_CODES or error_status in _NON_RETRYABLE_STATUSES:
+                logger.error(
+                    f"ElevenLabs TTS failed (non-retryable) — voice_id: {voice_id}, "
+                    f"status: {response.status_code}, error: {error_status or response.text[:200]}. "
+                    "Please select a different ElevenLabs voice."
+                )
+                return None
+
+            logger.error(
+                f"elevenlabs tts failed with status {response.status_code}: {response.text[:200]}"
+            )
+            if response.status_code in _TTS_RETRYABLE_STATUS_CODES:
+                continue
+            return None
+
+        # 200 之后音频已经计费，本地写入或解码失败时直接失败，不再重新购买。
+        try:
             with open(voice_file, "wb") as f:
                 f.write(response.content)
 
@@ -2097,16 +2221,17 @@ def elevenlabs_tts(
                 audio_duration = audio_clip.duration
             finally:
                 audio_clip.close()
-
-            sub_maker = ensure_legacy_submaker_fields(SubMaker())
-            logger.success(f"elevenlabs tts succeeded: {voice_file}")
-            return populate_legacy_submaker_with_full_text(
-                sub_maker=sub_maker,
-                text=text,
-                audio_duration_seconds=audio_duration,
-            )
         except Exception as e:
-            logger.error(f"elevenlabs tts failed: {str(e)}")
+            logger.error(f"elevenlabs tts returned unreadable audio: {str(e)}")
+            return None
+
+        sub_maker = ensure_legacy_submaker_fields(SubMaker())
+        logger.success(f"elevenlabs tts succeeded: {voice_file}")
+        return populate_legacy_submaker_with_full_text(
+            sub_maker=sub_maker,
+            text=text,
+            audio_duration_seconds=audio_duration,
+        )
 
     return None
 
@@ -2371,46 +2496,58 @@ def fish_audio_tts(
         payload["reference_id"] = reference_id
 
     for i in range(3):
+        logger.info(
+            f"start fish audio tts, model: {model_name}, "
+            f"ref: {reference_id or 'default'}, try: {i + 1}"
+        )
         try:
-            logger.info(
-                f"start fish audio tts, model: {model_name}, "
-                f"ref: {reference_id or 'default'}, try: {i + 1}"
-            )
             ensure_file_path_exists(voice_file)
-
             response = requests.post(url, json=payload, headers=headers, timeout=60)
-            if response.status_code == 401:
-                logger.error(
-                    "Fish Audio TTS failed: Invalid API key (401). "
-                    "Check config.toml [fish_audio] api_key or FISH_API_KEY."
-                )
-                return None
-            if response.status_code == 402:
-                logger.error(
-                    "Fish Audio TTS failed: Insufficient API credit (402). "
-                    "Please check your account balance at "
-                    "https://fish.audio/app/developers or verify your model and billing tier."
-                )
-                return None
-            if response.status_code == 429:
-                logger.warning(
-                    "Fish Audio TTS rate limited (429), retrying..."
-                )
+        except requests.RequestException as e:
+            logger.error(f"fish audio tts request failed: {str(e)}")
+            if _is_tts_request_error_retryable(e):
                 continue
-            if response.status_code != 200:
-                logger.error(
-                    f"fish audio tts failed with status "
-                    f"{response.status_code}: {response.text[:200]}"
-                )
-                continue
+            return None
+        except OSError as e:
+            logger.error(f"fish audio tts failed: {str(e)}")
+            return None
 
-            # Validate response contains audio data
-            if not response.content or len(response.content) < 100:
-                logger.error(
-                    "Fish Audio TTS returned empty or invalid audio data"
-                )
+        if response.status_code == 401:
+            logger.error(
+                "Fish Audio TTS failed: Invalid API key (401). "
+                "Check config.toml [fish_audio] api_key or FISH_API_KEY."
+            )
+            return None
+        if response.status_code == 402:
+            logger.error(
+                "Fish Audio TTS failed: Insufficient API credit (402). "
+                "Please check your account balance at "
+                "https://fish.audio/app/developers or verify your model and billing tier."
+            )
+            return None
+        if response.status_code == 429:
+            logger.warning(
+                "Fish Audio TTS rate limited (429), retrying..."
+            )
+            continue
+        if response.status_code != 200:
+            logger.error(
+                f"fish audio tts failed with status "
+                f"{response.status_code}: {response.text[:200]}"
+            )
+            if response.status_code in _TTS_RETRYABLE_STATUS_CODES:
                 continue
+            return None
 
+        # 200 之后音频已经计费：内容无效、写入或解码失败时直接失败，
+        # 不再重新购买同一段合成。
+        if not response.content or len(response.content) < 100:
+            logger.error(
+                "Fish Audio TTS returned empty or invalid audio data"
+            )
+            return None
+
+        try:
             with open(voice_file, "wb") as f:
                 f.write(response.content)
 
@@ -2419,16 +2556,17 @@ def fish_audio_tts(
                 audio_duration = audio_clip.duration
             finally:
                 audio_clip.close()
-
-            sub_maker = ensure_legacy_submaker_fields(SubMaker())
-            logger.success(f"fish audio tts succeeded: {voice_file}")
-            return populate_legacy_submaker_with_full_text(
-                sub_maker=sub_maker,
-                text=text,
-                audio_duration_seconds=audio_duration,
-            )
         except Exception as e:
-            logger.error(f"fish audio tts failed: {str(e)}")
+            logger.error(f"fish audio tts returned unreadable audio: {str(e)}")
+            return None
+
+        sub_maker = ensure_legacy_submaker_fields(SubMaker())
+        logger.success(f"fish audio tts succeeded: {voice_file}")
+        return populate_legacy_submaker_with_full_text(
+            sub_maker=sub_maker,
+            text=text,
+            audio_duration_seconds=audio_duration,
+        )
 
     return None
 

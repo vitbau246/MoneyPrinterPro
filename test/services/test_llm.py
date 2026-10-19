@@ -1717,6 +1717,24 @@ class TestClaudeCodeProvider(unittest.TestCase):
             run.call_args.kwargs["timeout"], llm.CLAUDE_CODE_DEFAULT_TIMEOUT
         )
 
+    def test_prompt_is_sent_via_stdin_not_command_line(self):
+        """提示词含 cmd.exe 元字符、换行或以 - 开头时也不能进入命令行参数。"""
+        prompt = '--x" & calc.exe & "\n%PATH%\nchủ đề 主题'
+        with (
+            patch.object(llm.shutil, "which", return_value="C:/npm/claude.cmd"),
+            patch.object(
+                llm.subprocess,
+                "run",
+                return_value=self._completed(stdout=self._cli_payload("ok")),
+            ) as run,
+        ):
+            llm._generate_response(prompt)
+
+        command = run.call_args.args[0]
+        self.assertFalse(any(prompt in arg or "calc.exe" in arg for arg in command))
+        self.assertEqual(run.call_args.kwargs["input"], prompt)
+        self.assertEqual(run.call_args.kwargs["encoding"], "utf-8")
+
     def test_generation_disables_tools_and_user_customizations(self):
         """纯文本生成必须关闭全部工具和用户级定制，避免读写文件或加载 skills。"""
         with (
@@ -2256,7 +2274,7 @@ class TestSocialMetadata(unittest.TestCase):
         )
 
         with patch.object(llm, "_generate_response", return_value=llm_response):
-            response = TestClient(app).post(
+            response = TestClient(app, base_url="http://localhost").post(
                 "/api/v1/social-metadata",
                 json=request_body,
             )

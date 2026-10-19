@@ -1166,6 +1166,86 @@ class TestTaskService(unittest.TestCase):
         whisper_create.assert_not_called()
         whisper_correct.assert_not_called()
 
+    def test_generate_subtitle_translates_to_subtitle_language_by_sentence(self):
+        """
+        Lời đọc tiếng Anh, phụ đề tiếng Việt: phụ đề được dịch sau khi tạo và
+        luôn theo câu, vì bản dịch không khớp từng từ với lời đọc.
+        """
+        task_id = "test-edge-subtitle-translated"
+        task_dir = utils.task_dir(task_id)
+        params = VideoParams(
+            video_subject="saving money",
+            video_language="en-US",
+            subtitle_language="vi-VN",
+            subtitle_enabled=True,
+            subtitle_display_mode="word_by_word",
+        )
+
+        def fake_create_subtitle(text, sub_maker, subtitle_file, word_level=False):
+            self.assertFalse(word_level)
+            Path(subtitle_file).write_text(
+                "1\n00:00:00,000 --> 00:00:01,000\nHello.\n\n", encoding="utf-8"
+            )
+
+        try:
+            with (
+                patch.object(
+                    tm.config, "app", dict(tm.config.app, subtitle_provider="edge")
+                ),
+                patch.object(
+                    tm.voice, "create_subtitle", side_effect=fake_create_subtitle
+                ),
+                patch.object(tm.subtitle, "translate", return_value=True) as translate,
+            ):
+                subtitle_path = tm.generate_subtitle(
+                    task_id=task_id,
+                    params=params,
+                    video_script="Hello.",
+                    sub_maker=object(),
+                    audio_file=os.path.join(task_dir, "audio.mp3"),
+                )
+        finally:
+            shutil.rmtree(task_dir, ignore_errors=True)
+
+        translate.assert_called_once_with(subtitle_path, "vi-VN", "Hello.")
+
+    def test_generate_subtitle_skips_translation_for_same_language(self):
+        task_id = "test-edge-subtitle-same-language"
+        task_dir = utils.task_dir(task_id)
+        params = VideoParams(
+            video_subject="tiết kiệm",
+            video_language="vi-VN",
+            subtitle_language="vi",
+            subtitle_enabled=True,
+        )
+
+        def fake_create_subtitle(text, sub_maker, subtitle_file, word_level=False):
+            Path(subtitle_file).write_text(
+                "1\n00:00:00,000 --> 00:00:01,000\nXin chào.\n\n", encoding="utf-8"
+            )
+
+        try:
+            with (
+                patch.object(
+                    tm.config, "app", dict(tm.config.app, subtitle_provider="edge")
+                ),
+                patch.object(
+                    tm.voice, "create_subtitle", side_effect=fake_create_subtitle
+                ),
+                patch.object(tm.subtitle, "translate") as translate,
+            ):
+                tm.generate_subtitle(
+                    task_id=task_id,
+                    params=params,
+                    video_script="Xin chào.",
+                    sub_maker=object(),
+                    audio_file=os.path.join(task_dir, "audio.mp3"),
+                )
+        finally:
+            shutil.rmtree(task_dir, ignore_errors=True)
+
+        translate.assert_not_called()
+
     def test_start_returns_each_intermediate_result(self):
         """
         API 的 script、terms、audio、subtitle 和 materials 模式共用同一条任务
