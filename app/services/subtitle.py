@@ -43,7 +43,7 @@ def create(audio_file, subtitle_file: str = "", word_level: bool = False):
                 f"********************************************\n"
                 f"this may be caused by network issue. \n"
                 f"please download the model manually and put it in the 'models' folder. \n"
-                f"see the FAQ in README.md for more details.\n"
+                f"see 'Xử lý sự cố' in README.md for more details.\n"
                 f"********************************************\n\n"
             )
             return None
