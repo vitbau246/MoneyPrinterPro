@@ -51,6 +51,10 @@ MoneyPrinterTurbo-Portable-Windows\
 └─ update.bat         cài/cập nhật thư viện Python (không tải mã nguồn mới)
 ```
 
+Các file `.bat` và `readme.txt` ở thư mục ngoài được lưu trong repo tại `portable/`. Khi dựng lại bản
+portable, chép chúng ra thư mục ngoài, cạnh `lib\` và `MoneyPrinterTurbo\` (chúng tìm `lib\` và mã nguồn
+theo vị trí của chính file).
+
 1. Đặt thư mục vào một đường dẫn không dấu, không khoảng trắng.
 2. Chạy `update.bat` một lần để cài đủ thư viện trong `requirements.txt`
    (gồm `pyTelegramBotAPI` và `playwright`).

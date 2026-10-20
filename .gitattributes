@@ -14,3 +14,6 @@
 *.otf binary
 *.woff binary
 *.woff2 binary
+
+# cmd.exe cần CRLF
+*.bat text eol=crlf
