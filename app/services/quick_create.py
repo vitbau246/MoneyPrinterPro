@@ -519,12 +519,9 @@ def create_gif(
 # ------------------------------------------------- lên lịch đăng sau khi tạo
 
 
-def post_text(post: cp.PostPackage | None, fallback_title: str) -> tuple[str, str]:
-    """(tiêu đề, mô tả kèm hashtag) để đăng video."""
-    if not post:
-        return fallback_title, ""
-    hashtags = " ".join(post.hashtags)
-    return post.title or fallback_title, "\n\n".join(part for part in (post.caption, hashtags) if part)
+def post_text(post: cp.PostPackage | None, fallback_title: str) -> tuple[str, str, list[str]]:
+    """(tiêu đề, mô tả kèm hashtag, thẻ YouTube) để đăng video."""
+    return social_schedule.post_fields(post, fallback_title)
 
 
 def should_post(flag: bool | None) -> bool:
@@ -538,12 +535,12 @@ def schedule_outputs(
     """Đưa các video vừa lưu vào lịch đăng nếu người dùng muốn; trả về các mục lịch."""
     if not should_post(flag):
         return []
-    title, description = post_text(result.post, result.title)
+    title, description, tags = post_text(result.post, result.title)
     scheduled = []
     for output in result.outputs:
         if output.saved:
             entry = social_schedule.schedule_created_video(
-                output.saved.paths[0], title, description, source=source, chat_id=chat_id
+                output.saved.paths[0], title, description, tags, source=source, chat_id=chat_id
             )
             if entry:
                 scheduled.append(entry)

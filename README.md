@@ -188,19 +188,31 @@ Chỉ chạy **một** bot cho mỗi token (bot chạy trùng sẽ tự thoát).
 
 1. **Đăng nhập lần đầu**: WebUI → Tạo nhanh → *Đăng bài* → **Mở trình duyệt để đăng nhập**
    (hoặc `/dangnhap` trên bot). Đăng nhập Facebook, TikTok, YouTube Studio trong cửa sổ đó; phiên
-   đăng nhập được giữ trong `storage/social/browser_profile`. Kiểm tra: nút *Kiểm tra đăng nhập* hoặc
-   `/dangnhap kiemtra`.
-2. **Chạy thử** trước khi đăng thật: tick *Chạy thử* trên web hoặc `/dang 105 ngay #thu` – điền xong
+   đăng nhập được giữ trong `storage/social/browser_profile`.
+   - Facebook: muốn đăng lên một Trang thì chuyển sang hồ sơ của Trang đó.
+   - YouTube: chọn đúng kênh trong YouTube Studio.
+2. **Xác nhận trang/kênh**: bấm *Kiểm tra đăng nhập & xác nhận trang/kênh* (hoặc `/dangnhap kiemtra`).
+   Tài khoản đang đăng nhập (Trang/hồ sơ Facebook, @username TikTok, kênh YouTube) được lưu ở
+   `storage/social/accounts.json`. Trước mỗi lần đăng, chương trình so tài khoản trong trình duyệt
+   với tài khoản đã xác nhận; chưa xác nhận hoặc khác tài khoản thì **không đăng** và báo lỗi.
+   Đổi tài khoản đăng bài: chuyển tài khoản trong trình duyệt rồi kiểm tra lại.
+3. **Chạy thử** trước khi đăng thật: tick *Chạy thử* trên web hoặc `/dang 105 ngay #thu` – điền xong
    tiêu đề/mô tả nhưng không bấm Đăng, tab để mở cho bạn xem.
-3. **Lên lịch**:
+4. **Lên lịch**:
    - Web: chọn video trong thư viện, nền tảng, thời điểm (khung giờ trống kế tiếp / ngay / giờ cụ thể).
    - Bot: `/dang <số video> [fb tt yt] [ngay | 20:00 | 21/10 20:00] [#thu]`, ví dụ `/dang 105-110 tt yt`.
    - Xem, đăng ngay, huỷ: danh sách *Lịch đăng* trên web hoặc `/lichdang`.
-4. **Tự động đăng video mới**: mục *Đăng tự động & khung giờ* trên web hoặc
+5. **Tự động đăng video mới**: mục *Đăng tự động & khung giờ* trên web hoặc
    `/tudongdang bat 8:00 12:00 19:30 fb tt yt`. Mỗi video vào một khung giờ còn trống.
 
+Nội dung tự điền khi đăng: tiêu đề, mô tả kèm hashtag (Facebook, TikTok dùng tiêu đề + mô tả) và thẻ
+YouTube. Video mới tạo được AI viết sẵn các phần này ngay khi tạo (lưu ở
+`storage/social/captions.json`). Video cũ chưa có thì AI tự viết từ lời thoại (`.txt`) trước khi
+đăng; trên web có nút *✨ Viết bằng AI* để tạo và sửa trước.
+
 Kết quả đăng được báo qua Telegram. Lỗi được thử lại 1 lần sau 10 phút; ảnh chụp màn hình lỗi ở
-`storage/social/screenshots`. Web và bot dùng chung lịch, mỗi lúc chỉ một bên thực hiện đăng. Máy
+`storage/social/screenshots`. Lỗi xảy ra sau khi đã bấm Đăng thì không thử lại (bài có thể đã lên,
+thử lại sẽ thành bài trùng): bot báo ⚠️ để bạn kiểm tra trên trang. Web và bot dùng chung lịch, mỗi lúc chỉ một bên thực hiện đăng. Máy
 phải bật và WebUI hoặc bot phải đang chạy đến giờ đăng.
 
 ### Tạo hàng loạt từ file

@@ -873,11 +873,12 @@ Viết nội dung đăng kèm video loại "{title}" dựa trên chủ đề và
 2. "title": tối đa 60 ký tự, chứa từ khoá chính trong 4 từ đầu, gây tò mò nhưng đúng nội dung; không emoji, không hashtag, không ngoặc kép. Tiêu đề được in lên ảnh bìa video và dùng làm tiêu đề YouTube Shorts.
 3. "caption": 2–4 câu, khoảng 150–300 ký tự. Câu đầu chứa từ khoá chính trong 60 ký tự đầu vì nền tảng chỉ hiện chừng ấy trước chữ "xem thêm". Tóm tắt giá trị người xem nhận được, lồng ghép tự nhiên 2–3 từ khoá liên quan theo cách người dùng tìm kiếm, kết thúc bằng lời mời bình luận, lưu hoặc chia sẻ. Tối đa 2 emoji, không hashtag.
 4. "hashtags": mảng {hashtag_count} hashtag viết liền, không dấu, chữ thường: một hashtag là từ khoá chính, 2–3 hashtag ngách đúng chủ đề, một hashtag chủ đề rộng. Không dùng hashtag chung chung như #fyp, #viral, #xuhuong.
-5. Chỉ dùng thông tin có trong kịch bản; không bịa giá, ưu đãi, số liệu hay sự kiện.
-6. Viết cùng ngôn ngữ với kịch bản.
-7. Gợi ý riêng cho loại video này: {seo_hint}
-8. Chỉ trả về một object JSON hợp lệ, không markdown, không giải thích:
-{{"keyword": "...", "title": "...", "caption": "...", "hashtags": ["#...", "#..."]}}
+5. "tags": mảng 8–12 thẻ tìm kiếm cho YouTube: cụm từ người xem gõ để tìm video này, viết có dấu, không dấu #, gồm từ khoá chính, các biến thể và từ khoá liên quan; tổng độ dài dưới 400 ký tự.
+6. Chỉ dùng thông tin có trong kịch bản; không bịa giá, ưu đãi, số liệu hay sự kiện.
+7. Viết cùng ngôn ngữ với kịch bản.
+8. Gợi ý riêng cho loại video này: {seo_hint}
+9. Chỉ trả về một object JSON hợp lệ, không markdown, không giải thích:
+{{"keyword": "...", "title": "...", "caption": "...", "hashtags": ["#...", "#..."], "tags": ["...", "..."]}}
 
 ## Chủ đề:
 {subject}
@@ -895,6 +896,8 @@ class PostPackage:
     title: str
     caption: str
     hashtags: list[str]
+    # Thẻ tìm kiếm YouTube (ô "Thẻ"), có dấu, không #.
+    tags: list[str] = field(default_factory=list)
 
     def text(self, limit: int = 1000) -> str:
         """Bản để dán thẳng khi đăng bài, gọn trong ``limit`` ký tự."""
@@ -927,6 +930,25 @@ def _clean_hashtags(raw: Any, fallback: Sequence[str]) -> list[str]:
     return tags[:_HASHTAG_COUNT]
 
 
+_TAGS_TOTAL_LENGTH = 450
+
+
+def clean_tags(raw: Any, extra: Sequence[str] = ()) -> list[str]:
+    """Thẻ YouTube: cụm từ một dòng, bỏ #, không trùng, tổng dưới giới hạn của YouTube."""
+    items = raw if isinstance(raw, (list, tuple)) else str(raw or "").split(",")
+    tags: list[str] = []
+    total = 0
+    for item in [*items, *extra]:
+        tag = _one_line(str(item).replace("#", " ")).strip(" ,")[:100]
+        if not tag or tag.lower() in (existing.lower() for existing in tags):
+            continue
+        if total + len(tag) + 1 > _TAGS_TOTAL_LENGTH:
+            break
+        tags.append(tag)
+        total += len(tag) + 1
+    return tags
+
+
 def generate_post(
     preset: ContentPreset, subject: str, script: str, language: str = ""
 ) -> PostPackage | None:
@@ -949,11 +971,13 @@ def generate_post(
     title = _one_line((data or {}).get("title"))[:100]
     if not title:
         return None
+    keyword = _one_line(data.get("keyword"))[:80]
     return PostPackage(
-        keyword=_one_line(data.get("keyword"))[:80],
+        keyword=keyword,
         title=title,
         caption=str(data.get("caption") or "").strip()[:1000],
         hashtags=_clean_hashtags(data.get("hashtags"), fallback),
+        tags=clean_tags(data.get("tags"), [keyword] if keyword else []),
     )
 
 

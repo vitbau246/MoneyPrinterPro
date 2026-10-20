@@ -491,7 +491,11 @@ class QuickJobs:
             files=files,
             cover=cover,
             saved_names=names,
-            post_text=post.text(5000) if post else "",
+            post_text=(
+                post.text(5000) + (f"\n\nThẻ YouTube: {', '.join(post.tags)}" if post.tags else "")
+                if post
+                else ""
+            ),
             keyword=post.keyword if post else "",
             script=result.script,
         )

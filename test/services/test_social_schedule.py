@@ -67,9 +67,28 @@ class TestScheduleStore(SocialTestCase):
         self.assertEqual([number for number, _, _ in ss.library_videos()], [12, 7])
         self.assertEqual(ss.find_video(7), self.videos[0])
         self.assertIsNone(ss.find_video(99))
-        self.assertEqual(ss.caption_for(self.videos[0]), ("Mẹo ngủ ngon", ""))
-        ss.remember_post(self.videos[0], "Tiêu đề SEO", "Mô tả #a")
-        self.assertEqual(ss.caption_for(self.videos[0]), ("Tiêu đề SEO", "Mô tả #a"))
+        self.assertEqual(ss.caption_for(self.videos[0]), ("Mẹo ngủ ngon", "", []))
+        self.assertFalse(ss.has_post_info(self.videos[0]))
+        ss.remember_post(self.videos[0], "Tiêu đề SEO", "Mô tả #a", ["mẹo ngủ"])
+        self.assertEqual(ss.caption_for(self.videos[0]), ("Tiêu đề SEO", "Mô tả #a", ["mẹo ngủ"]))
+        self.assertTrue(ss.has_post_info(self.videos[0]))
+        entry = ss.schedule(self.videos[0], ["yt"])
+        self.assertEqual(entry["tags"], ["mẹo ngủ"])
+
+    def test_post_fields_and_generate_for_old_video(self):
+        post = cp.PostPackage("ngủ ngon", "Tiêu đề", "Mô tả.", ["#ngungon", "#meo"], ["mẹo ngủ ngon"])
+        self.assertEqual(ss.post_fields(post, "x"), ("Tiêu đề", "Mô tả.\n\n#ngungon #meo", ["mẹo ngủ ngon"]))
+        without_tags = cp.PostPackage("ngủ ngon", "Tiêu đề", "", ["#ngungon"])
+        self.assertEqual(ss.post_fields(without_tags, "x")[2], ["ngủ ngon", "ngungon"])
+        self.assertEqual(ss.post_fields(None, "x"), ("x", "", []))
+        with open(os.path.splitext(self.videos[0])[0] + ".txt", "w", encoding="utf-8") as file:
+            file.write("Lời thoại về giấc ngủ")
+        self.addCleanup(os.remove, os.path.splitext(self.videos[0])[0] + ".txt")
+        with patch.object(cp, "generate_post", return_value=post) as generate:
+            fields = ss.generate_post_info(self.videos[0])
+        self.assertEqual(generate.call_args.args[1:], ("Mẹo ngủ ngon", "Lời thoại về giấc ngủ"))
+        self.assertEqual(fields[0], "Tiêu đề")
+        self.assertEqual(ss.caption_for(self.videos[0])[0], "Tiêu đề")
 
     def test_batch_gets_separate_slots(self):
         ss.save_settings(slots=["08:00", "12:00", "19:30"], platforms=["yt", "tt"])
@@ -102,6 +121,27 @@ class TestProcessOnce(SocialTestCase):
         super().setUp()
         self.notes = []
         self.notify = lambda chat_id, text: self.notes.append((chat_id, text))
+        # Không gọi AI thật khi video chưa có mô tả.
+        patcher = patch.object(ss, "generate_post_info", return_value=None)
+        self.generate = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_missing_info_is_written_by_ai_before_posting(self):
+        self.generate.return_value = ("Tiêu đề AI", "Mô tả AI #a", ["thẻ"])
+        entry = ss.schedule(self.videos[0], ["yt"], time.time() - 1)
+        publish = MagicMock(return_value=sp.Outcome(account="Kênh (UC1)"))
+        ss.process_once(publish, self.notify)
+        content = publish.call_args.args[1]
+        self.assertEqual((content.title, content.description, content.tags), ("Tiêu đề AI", "Mô tả AI #a", ["thẻ"]))
+        self.assertEqual(ss.get(entry["id"])["description"], "Mô tả AI #a")
+        self.assertEqual(ss.get(entry["id"])["targets"]["youtube"]["account"], "Kênh (UC1)")
+        self.assertIn("(Kênh (UC1))", self.notes[0][1])
+
+    def test_wrong_account_fails_without_retry(self):
+        entry = ss.schedule(self.videos[0], ["fb"], time.time() - 1, description="có sẵn")
+        ss.process_once(MagicMock(side_effect=sp.WrongAccount("khác trang")), self.notify)
+        self.assertEqual(ss.get(entry["id"])["targets"]["facebook"]["status"], ss.FAILED)
+        self.generate.assert_not_called()
 
     def test_publishes_due_platforms_in_order(self):
         ss.remember_post(self.videos[0], "Tiêu đề", "Mô tả")
@@ -143,6 +183,15 @@ class TestProcessOnce(SocialTestCase):
         ss.process_once(publish, self.notify, now=time.time() + ss.RETRY_DELAY_SECONDS + 1)
         self.assertEqual(ss.get(entry["id"])["targets"]["youtube"]["status"], ss.FAILED)
         self.assertEqual(len(self.notes), 1)
+
+    def test_error_after_post_click_is_not_retried(self):
+        entry = ss.schedule(self.videos[0], ["tt"], time.time() - 1)
+        publish = MagicMock(side_effect=sp.MaybePosted("Đã bấm Đăng nhưng không xác nhận được"))
+        ss.process_once(publish, self.notify)
+        self.assertEqual(ss.get(entry["id"])["targets"]["tiktok"]["status"], ss.FAILED)
+        self.assertFalse(ss.process_once(publish, self.notify, now=time.time() + ss.RETRY_DELAY_SECONDS + 1))
+        self.assertEqual(publish.call_count, 1)
+        self.assertIn("không xác nhận", self.notes[0][1])
 
     def test_dry_run(self):
         entry = ss.schedule(self.videos[0], ["fb"], time.time() - 1, dry_run=True)

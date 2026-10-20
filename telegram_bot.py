@@ -39,6 +39,7 @@ from app.models import const
 from app.services import content_presets as cp
 from app.services import gif_maker
 from app.services import quick_create as qc
+from app.services import social_accounts
 from app.services import social_browser
 from app.services import social_publish as sp
 from app.services import social_schedule
@@ -1268,6 +1269,13 @@ def handle_post(message: types.Message) -> None:
         lines.append(social_schedule.describe(entry))
     if lines:
         lines.insert(0, "Đã lên lịch đăng (kết quả sẽ báo ở đây; /lichdang để xem, huỷ):")
+        chosen = (
+            social_schedule.normalize_platforms(platforms)
+            or social_schedule.get_settings()["platforms"]
+        )
+        lines.append("\nĐăng lên:\n" + _accounts_text(chosen))
+        if any(name not in social_accounts.confirmed() for name in chosen):
+            lines.append("Xác nhận trang/kênh còn thiếu bằng /dangnhap kiemtra trước giờ đăng.")
     if missing:
         lines.append(f"Không có video số {', '.join(missing)} trong thư mục thành phẩm.")
     bot.reply_to(message, "\n".join(lines)[:MAX_MESSAGE])
@@ -1297,6 +1305,7 @@ def _schedule_view() -> tuple[str, types.InlineKeyboardMarkup | None]:
     lines.append(
         f"\nĐăng tự động video mới: {'bật' if settings['auto_post'] else 'tắt'} (/tudongdang)."
     )
+    lines.append("Trang/kênh đăng bài:\n" + _accounts_text())
     keyboard = None
     if upcoming:
         keyboard = types.InlineKeyboardMarkup(row_width=2)
@@ -1373,13 +1382,31 @@ def handle_auto_post(message: types.Message) -> None:
     )
 
 
+def _accounts_text(platforms=sp.PLATFORMS) -> str:
+    """Trang/kênh đã xác nhận; bài chỉ được đăng lên đúng các tài khoản này."""
+    accounts = social_accounts.confirmed()
+    return "\n".join(
+        f"{sp.PLATFORM_NAMES[name]}: "
+        + (f"✅ {accounts[name].label()}" if name in accounts else "⚠️ chưa xác nhận – sẽ không đăng")
+        for name in platforms
+    )
+
+
 def _report_login(chat_id: int, message_id: int) -> None:
     try:
-        status = social_browser.login_status()
-        text = "\n".join(
-            f"{sp.PLATFORM_NAMES[name]}: {'✅ đã đăng nhập' if status.get(name) else '❌ chưa đăng nhập'}"
-            for name in sp.PLATFORMS
+        found = social_accounts.check_and_save()
+        notes = []
+        for name, value in found.items():
+            if isinstance(value, str):
+                notes.append(f"{sp.PLATFORM_NAMES[name]}: không đọc được ({value}), giữ xác nhận cũ.")
+            elif value is None:
+                notes.append(f"{sp.PLATFORM_NAMES[name]}: chưa đăng nhập.")
+        text = (
+            "Đã lưu trang/kênh đăng bài (lần đăng sau mà trình duyệt ở tài khoản khác sẽ "
+            "không đăng):\n" + _accounts_text()
         )
+        if notes:
+            text += "\n\n" + "\n".join(notes)
     except Exception as exc:
         text = f"Không kiểm tra được: {exc}"
     try:
@@ -1409,7 +1436,9 @@ def handle_login(message: types.Message) -> None:
         "Đã mở trình duyệt đăng bài trên máy chạy bot, với các trang Facebook, TikTok, "
         "YouTube Studio. Đăng nhập một lần trong cửa sổ đó (đây là profile riêng: "
         f"{social_browser.profile_dir()}); bot dùng lại phiên đăng nhập này để đăng bài. "
-        "Không đóng cửa sổ cũng được. Gõ /dangnhap kiemtra để kiểm tra.",
+        "Facebook: muốn đăng lên Trang thì chuyển sang hồ sơ của Trang đó. YouTube: chọn đúng "
+        "kênh trong YouTube Studio. Xong gõ /dangnhap kiemtra để lưu trang/kênh đăng bài – "
+        "bot chỉ đăng khi trình duyệt đang ở đúng các tài khoản này.",
     )
 
 

@@ -7,8 +7,9 @@ Lịch đăng video lên Facebook Reels, TikTok và YouTube, dùng chung cho Web
   còn lại tự nhận việc trong vòng một phút.
 - Thiết lập đăng tự động (bật/tắt, nền tảng, khung giờ trong ngày) ở
   storage/social/settings.json, chỉnh được từ web (tab Đăng bài) và bot (/tudongdang).
-- Tiêu đề/mô tả chuẩn SEO của video vừa tạo được ghi lại ở storage/social/captions.json
-  để khi đăng dùng đúng nội dung đó (thư mục thành phẩm chỉ giữ video, ảnh bìa, lời thoại).
+- Tiêu đề, mô tả, hashtag và thẻ YouTube chuẩn SEO do AI viết khi tạo video được ghi ở
+  storage/social/captions.json để khi đăng tự điền đầy đủ (thư mục thành phẩm chỉ giữ
+  video, ảnh bìa, lời thoại). Video cũ chưa có thì AI viết từ lời thoại trước khi đăng.
 - Kết quả đăng được báo qua Telegram (người đặt lịch trên bot, hoặc quản trị viên).
 """
 
@@ -29,6 +30,7 @@ import requests
 from loguru import logger
 
 from app.config import config
+from app.services import content_presets as cp
 from app.services import output_library
 from app.services import social_publish as sp
 from app.utils import utils
@@ -156,12 +158,18 @@ def save_settings(**changes) -> dict:
 # ------------------------------------------------------- nội dung đăng bài
 
 
-def remember_post(video_path: str, title: str, description: str) -> None:
-    """Ghi tiêu đề và mô tả chuẩn SEO của video vừa lưu vào thư mục thành phẩm."""
+def remember_post(
+    video_path: str, title: str, description: str, tags: Sequence[str] = ()
+) -> None:
+    """Ghi tiêu đề, mô tả (kèm hashtag) và thẻ YouTube của video trong thư mục thành phẩm."""
     try:
         with _locked():
             captions = _read("captions.json", {})
-            captions[os.path.basename(video_path)] = {"title": title, "description": description}
+            captions[os.path.basename(video_path)] = {
+                "title": title,
+                "description": description,
+                "tags": list(tags),
+            }
             _write("captions.json", captions)
     except Exception as exc:
         logger.warning(f"cannot remember post text for {video_path}: {exc}")
@@ -172,11 +180,54 @@ def _stem_title(video_path: str) -> str:
     return re.sub(r"^#\d+\s+", "", stem)
 
 
-def caption_for(video_path: str) -> tuple[str, str]:
-    """(tiêu đề, mô tả) để đăng; video cũ chưa có thì lấy tiêu đề từ tên file."""
+def caption_for(video_path: str) -> tuple[str, str, list[str]]:
+    """(tiêu đề, mô tả, thẻ) để đăng; video cũ chưa có thì lấy tiêu đề từ tên file."""
     saved = _read("captions.json", {}).get(os.path.basename(video_path)) or {}
     title = saved.get("title") or _stem_title(video_path)
-    return title, saved.get("description") or ""
+    return title, saved.get("description") or "", list(saved.get("tags") or [])
+
+
+def has_post_info(video_path: str) -> bool:
+    saved = _read("captions.json", {}).get(os.path.basename(video_path)) or {}
+    return bool(saved.get("description"))
+
+
+def post_fields(post: cp.PostPackage | None, fallback_title: str) -> tuple[str, str, list[str]]:
+    """(tiêu đề, mô tả kèm hashtag, thẻ YouTube) từ nội dung AI viết."""
+    if not post:
+        return fallback_title, "", []
+    hashtags = " ".join(post.hashtags)
+    description = "\n\n".join(part for part in (post.caption, hashtags) if part)
+    tags = post.tags or cp.clean_tags([post.keyword, *(tag.lstrip("#") for tag in post.hashtags)])
+    return post.title or fallback_title, description, tags
+
+
+class _AnyVideo:
+    """Loại nội dung chung cho video cũ không rõ loại."""
+
+    title = "Video ngắn"
+    seo_hint = ""
+    default_hashtags: tuple[str, ...] = ()
+
+
+def generate_post_info(video_path: str) -> tuple[str, str, list[str]] | None:
+    """
+    AI viết tiêu đề, mô tả, hashtag và thẻ cho video chưa có (video tạo trước khi có
+    tính năng này), từ lời thoại trong file .txt cạnh video; lưu lại và trả về.
+    """
+    script_path = os.path.splitext(video_path)[0] + ".txt"
+    try:
+        with open(script_path, encoding="utf-8") as file:
+            script = file.read().strip()
+    except OSError:
+        script = ""
+    title = _stem_title(video_path)
+    post = cp.generate_post(_AnyVideo(), title, script or title)
+    if post is None:
+        return None
+    fields = post_fields(post, title)
+    remember_post(video_path, *fields)
+    return fields
 
 
 def library_videos() -> list[tuple[int, str, str]]:
@@ -280,6 +331,7 @@ def schedule(
     *,
     title: str | None = None,
     description: str | None = None,
+    tags: Sequence[str] | None = None,
     source: str = "web",
     chat_id: int | None = None,
     dry_run: bool = False,
@@ -290,7 +342,7 @@ def schedule(
     chosen = normalize_platforms(platforms or get_settings()["platforms"])
     if not chosen:
         raise ValueError("Chưa chọn nền tảng nào (Facebook, TikTok, YouTube).")
-    saved_title, saved_description = caption_for(video)
+    saved_title, saved_description, saved_tags = caption_for(video)
     with _locked():
         data = _read("schedule.json", [])
         entry = {
@@ -299,6 +351,7 @@ def schedule(
             "name": os.path.splitext(os.path.basename(video))[0],
             "title": (title if title is not None else saved_title).strip(),
             "description": (description if description is not None else saved_description).strip(),
+            "tags": cp.clean_tags(list(tags) if tags is not None else saved_tags),
             "run_at": run_at if run_at is not None else next_free_slot(),
             "created": time.time(),
             "source": source,
@@ -364,15 +417,19 @@ def schedule_created_video(
     video: str,
     title: str,
     description: str,
+    tags: Sequence[str] = (),
     *,
     source: str,
     chat_id: int | None = None,
     when: float | None = None,
 ) -> dict | None:
     """Ghi nội dung đăng bài và đưa video vừa tạo vào lịch (đăng tự động)."""
-    remember_post(video, title, description)
+    remember_post(video, title, description, tags)
     try:
-        return schedule(video, None, when, title=title, description=description, source=source, chat_id=chat_id)
+        return schedule(
+            video, None, when, title=title, description=description, tags=tags,
+            source=source, chat_id=chat_id,
+        )
     except Exception as exc:
         logger.warning(f"cannot schedule {video}: {exc}")
         return None
@@ -446,13 +503,20 @@ def process_once(
         return False
     entry, platform = claimed
     name = sp.PLATFORM_NAMES[platform]
-    content = sp.Content(entry["video"], entry["title"], entry["description"])
+    if not entry.get("description"):
+        entry = _fill_missing_info(entry)
+    content = sp.Content(entry["video"], entry["title"], entry["description"], list(entry.get("tags") or []))
     target = entry["targets"][platform]
     try:
         outcome = publish(platform, content, dry_run=entry.get("dry_run", False), label=entry["id"])
-    except sp.NotLoggedIn as exc:
+    except sp.AccountError as exc:
         _finish(entry["id"], platform, status=FAILED, error=str(exc), finished=time.time())
         notify(entry.get("chat_id"), f"❌ Chưa đăng được {entry['name']} lên {name}.\n{exc}")
+        return True
+    except sp.MaybePosted as exc:
+        # Đăng lại có thể thành bài trùng (TikTok từng đăng #071 hai lần): để người dùng xem.
+        _finish(entry["id"], platform, status=FAILED, error=str(exc), finished=time.time())
+        notify(entry.get("chat_id"), f"⚠️ {entry['name']} trên {name}: {exc}")
         return True
     except Exception as exc:
         error = str(exc) or type(exc).__name__
@@ -471,10 +535,38 @@ def process_once(
             "Tab vẫn mở trong trình duyệt đăng bài để bạn xem lại.",
         )
     else:
-        _finish(entry["id"], platform, status=DONE, error="", url=outcome.url, finished=time.time())
+        _finish(
+            entry["id"], platform, status=DONE, error="", url=outcome.url,
+            account=outcome.account, finished=time.time(),
+        )
+        account = f" ({outcome.account})" if outcome.account else ""
         link = f"\n{outcome.url}" if outcome.url else ""
-        notify(entry.get("chat_id"), f"✅ Đã đăng {entry['name']} lên {name}.{link}")
+        notify(entry.get("chat_id"), f"✅ Đã đăng {entry['name']} lên {name}{account}.{link}")
     return True
+
+
+def _fill_missing_info(entry: dict) -> dict:
+    """Video chưa có mô tả/hashtag: dùng nội dung đã lưu, hoặc nhờ AI viết rồi ghi vào lịch."""
+    video = entry["video"]
+    if has_post_info(video):
+        title, description, tags = caption_for(video)
+    else:
+        try:
+            generated = generate_post_info(video)
+        except Exception as exc:
+            logger.warning(f"cannot generate post text for {video}: {exc}")
+            generated = None
+        if not generated:
+            return entry
+        title, description, tags = generated
+    # Giữ tiêu đề người dùng đã sửa; chỉ thay khi còn là tiêu đề lấy từ tên file.
+    if entry["title"] and entry["title"] != _stem_title(video):
+        title = entry["title"]
+
+    def change(item):
+        item.update(title=title, description=description, tags=tags)
+
+    return _update(entry["id"], change) or {**entry, "title": title, "description": description, "tags": tags}
 
 
 def _reset_running() -> None:

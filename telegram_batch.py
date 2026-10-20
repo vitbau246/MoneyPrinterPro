@@ -321,11 +321,12 @@ def _run(args) -> int:
         output = saved.paths[0] if saved else video_path
         note = qc.saved_note(saved, video_path)
         if saved:
-            post_title, post_description = qc.post_text(post, title)
-            social_schedule.remember_post(output, post_title, post_description)
+            post_title, post_description, post_tags = qc.post_text(post, title)
+            social_schedule.remember_post(output, post_title, post_description, post_tags)
             if qc.should_post(args.post):
                 entry = social_schedule.schedule_created_video(
-                    output, post_title, post_description, source="telegram", chat_id=chat_id
+                    output, post_title, post_description, post_tags,
+                    source="telegram", chat_id=chat_id,
                 )
                 note += "\n" + qc.schedule_note([entry] if entry else [])
 

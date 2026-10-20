@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 
 import streamlit as st
 
+from app.services import social_accounts
 from app.services import social_browser
 from app.services import social_publish as sp
 from app.services import social_schedule as ss
@@ -42,12 +43,15 @@ def _notice(text: str) -> None:
 
 
 def _check_login() -> dict:
-    """Kiểm tra đăng nhập ở luồng riêng (Playwright đồng bộ không chạy trong vòng asyncio)."""
+    """
+    Đọc trang/kênh đang đăng nhập và lưu làm tài khoản đăng bài, ở luồng riêng
+    (Playwright đồng bộ không chạy trong vòng asyncio).
+    """
     result: dict = {}
 
     def work():
         try:
-            result["status"] = social_browser.login_status()
+            result["status"] = social_accounts.check_and_save()
         except Exception as exc:
             result["error"] = str(exc)
 
@@ -76,20 +80,39 @@ def _render_browser() -> None:
             st.success("Đã mở trình duyệt với các trang đăng nhập. Đăng nhập xong không cần đóng.")
         except social_browser.BrowserError as exc:
             st.error(str(exc))
-    if check_col.button("Kiểm tra đăng nhập", key="social_check", width="stretch"):
-        with st.spinner("Đang kiểm tra..."):
+    if check_col.button(
+        "Kiểm tra đăng nhập & xác nhận trang/kênh",
+        key="social_check",
+        width="stretch",
+        help="Đọc tài khoản đang đăng nhập trên từng nền tảng và lưu làm trang/kênh đăng bài. "
+        "Lần đăng sau mà trình duyệt đang ở tài khoản khác thì sẽ không đăng.",
+    ):
+        with st.spinner("Đang kiểm tra (khoảng 30 giây)..."):
             st.session_state["social_login"] = _check_login()
-    login = st.session_state.get("social_login")
-    if login:
-        if login.get("error"):
-            st.error(login["error"])
+    login = st.session_state.pop("social_login", None)
+    if login and login.get("error"):
+        st.error(login["error"])
+    elif login:
+        for name in sp.PLATFORMS:
+            value = login["status"].get(name)
+            if isinstance(value, str):
+                st.warning(f"{sp.PLATFORM_NAMES[name]}: không đọc được tài khoản ({value}); giữ xác nhận cũ.")
+            elif value is None:
+                st.warning(f"{sp.PLATFORM_NAMES[name]}: chưa đăng nhập.")
+    _render_accounts()
+
+
+def _render_accounts() -> None:
+    """Trang/kênh đã xác nhận – bài chỉ được đăng lên đúng các tài khoản này."""
+    accounts = social_accounts.confirmed()
+    lines = []
+    for name in sp.PLATFORMS:
+        account = accounts.get(name)
+        if account:
+            lines.append(f"✅ **{sp.PLATFORM_NAMES[name]}**: {account.label()}")
         else:
-            st.caption(
-                " · ".join(
-                    f"{sp.PLATFORM_NAMES[name]}: {'✅' if login['status'].get(name) else '❌ chưa đăng nhập'}"
-                    for name in sp.PLATFORMS
-                )
-            )
+            lines.append(f"⚠️ **{sp.PLATFORM_NAMES[name]}**: chưa xác nhận – sẽ không đăng")
+    st.markdown("Trang/kênh đăng bài đã xác nhận:  \n" + "  \n".join(lines))
 
 
 def _render_new() -> None:
@@ -131,25 +154,20 @@ def _render_new() -> None:
         day = date_col.date_input("Ngày", value=soon.date(), key="social_date", format="DD/MM/YYYY")
         moment = time_col.time_input("Giờ", value=soon.time().replace(second=0, microsecond=0), key="social_time")
         run_at = datetime.combine(day, moment).timestamp()
-    title = description = None
-    if len(selected) == 1:
-        video = selected[0]
-        cover = os.path.splitext(video)[0] + ".jpg"
-        saved_title, saved_description = ss.caption_for(video)
-        key = hashlib.md5(video.encode("utf-8")).hexdigest()[:8]
-        preview_col, text_col = st.columns([1, 2])
-        if os.path.exists(cover):
-            preview_col.image(cover)
-        title = text_col.text_input(
-            "Tiêu đề (YouTube dùng làm tiêu đề, tối đa 100 ký tự)",
-            value=saved_title,
-            key=f"social_title_{key}",
+    missing = [name for name in platforms if name not in social_accounts.confirmed()]
+    if missing:
+        st.warning(
+            "Chưa xác nhận trang/kênh cho "
+            + ", ".join(sp.PLATFORM_NAMES[name] for name in missing)
+            + ": bài cho nền tảng đó sẽ báo lỗi. Bấm “Kiểm tra đăng nhập & xác nhận trang/kênh” ở trên."
         )
-        description = text_col.text_area(
-            "Mô tả và hashtag",
-            value=saved_description,
-            key=f"social_description_{key}",
-            height=120,
+    title = description = tags = None
+    if len(selected) == 1:
+        title, description, tags = _render_post_fields(selected[0])
+    elif selected:
+        st.caption(
+            "Nhiều video: mỗi video dùng tiêu đề, mô tả, hashtag và thẻ AI đã viết khi tạo; video "
+            "cũ chưa có thì AI tự viết từ lời thoại trước khi đăng."
         )
     dry_run = st.checkbox(
         "Chạy thử: điền xong nhưng không bấm Đăng (để tab mở cho bạn xem lại)",
@@ -172,6 +190,7 @@ def _render_new() -> None:
                 time.time() if when == WHEN_NOW else run_at,
                 title=title,
                 description=description,
+                tags=tags,
                 source="web",
                 dry_run=dry_run,
             )
@@ -180,6 +199,52 @@ def _render_new() -> None:
     _notice(f"Đã lên lịch {len(scheduled)} video: {times}{'…' if len(scheduled) > 5 else ''}.")
     st.session_state["social_reset_new"] = True
     st.rerun()
+
+
+def _render_post_fields(video: str):
+    """Tiêu đề, mô tả kèm hashtag và thẻ YouTube của một video, sửa được trước khi đăng."""
+    key = hashlib.md5(video.encode("utf-8")).hexdigest()[:8]
+    fields = (f"social_title_{key}", f"social_description_{key}", f"social_tags_{key}")
+    if st.session_state.pop("social_reset_fields", None) == key:
+        for name in fields:
+            st.session_state.pop(name, None)
+    saved_title, saved_description, saved_tags = ss.caption_for(video)
+    cover = os.path.splitext(video)[0] + ".jpg"
+    preview_col, text_col = st.columns([1, 2])
+    if os.path.exists(cover):
+        preview_col.image(cover)
+    if not ss.has_post_info(video):
+        preview_col.caption("Video này chưa có mô tả/hashtag do AI viết.")
+        if preview_col.button("✨ Viết bằng AI", key=f"social_ai_{key}", width="stretch"):
+            with st.spinner("AI đang viết tiêu đề, mô tả, hashtag và thẻ từ lời thoại..."):
+                try:
+                    generated = ss.generate_post_info(video)
+                except Exception as exc:
+                    generated = False
+                    st.error(f"Không viết được: {exc}")
+            if generated:
+                st.session_state["social_reset_fields"] = key
+                st.rerun()
+            elif generated is None:
+                st.error("AI chưa trả lời, thử lại sau ít phút.")
+    title = text_col.text_input(
+        "Tiêu đề (YouTube dùng làm tiêu đề, tối đa 100 ký tự)",
+        value=saved_title,
+        key=fields[0],
+    )
+    description = text_col.text_area(
+        "Mô tả và hashtag (Facebook, TikTok dùng tiêu đề + phần này)",
+        value=saved_description,
+        key=fields[1],
+        height=130,
+    )
+    tags_text = text_col.text_input(
+        "Thẻ YouTube (phân cách bằng dấu phẩy)",
+        value=", ".join(saved_tags),
+        key=fields[2],
+    )
+    tags = [tag.strip() for tag in tags_text.split(",") if tag.strip()]
+    return title, description, tags
 
 
 def _render_entry(entry: dict) -> None:
@@ -192,6 +257,8 @@ def _render_entry(entry: dict) -> None:
         )
         for platform, target in entry["targets"].items():
             line = f"{STATUS_ICONS.get(target['status'], '')} {sp.PLATFORM_NAMES[platform]}: {ss.STATUS_NAMES[target['status']]}"
+            if target.get("account"):
+                line += f" · {target['account']}"
             if target.get("url"):
                 line += f" – {target['url']}"
             if target["status"] == ss.PENDING and target.get("error"):

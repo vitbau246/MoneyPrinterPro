@@ -206,6 +206,28 @@ def connect():
         playwright.stop()
 
 
+# Lỗi mạng chập chờn qua proxy văn phòng (TikTok hay bị reset vài phút rồi tự hết).
+_TRANSIENT_NET_ERRORS = (
+    "ERR_CONNECTION_RESET", "ERR_CONNECTION_CLOSED", "ERR_CONNECTION_REFUSED",
+    "ERR_CONNECTION_TIMED_OUT", "ERR_TIMED_OUT", "ERR_EMPTY_RESPONSE", "ERR_NETWORK_CHANGED",
+    "ERR_TUNNEL_CONNECTION_FAILED", "ERR_PROXY_CONNECTION_FAILED", "ERR_SOCKET_NOT_CONNECTED",
+    "ERR_HTTP2_PROTOCOL_ERROR", "ERR_SSL_PROTOCOL_ERROR",
+)
+GOTO_RETRY_SECONDS = (5, 10, 20, 30, 45, 60)
+
+
+def goto(page, url: str, wait_until: str = "domcontentloaded"):
+    """``page.goto`` thử lại khi lỗi mạng tạm thời (tổng cộng chờ tối đa ~3 phút)."""
+    for delay in (*GOTO_RETRY_SECONDS, None):
+        try:
+            return page.goto(url, wait_until=wait_until)
+        except Exception as exc:
+            if delay is None or not any(code in str(exc) for code in _TRANSIENT_NET_ERRORS):
+                raise
+            logger.warning(f"cannot open {url}, retry in {delay}s: {str(exc).splitlines()[0]}")
+            page.wait_for_timeout(delay * 1000)
+
+
 def login_status() -> dict[str, bool]:
     """Nền tảng nào đã đăng nhập, dựa vào cookie phiên trong profile."""
     with connect() as context:
