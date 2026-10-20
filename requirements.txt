@@ -19,6 +19,7 @@ packaging==24.2
 socksio==1.0.0
 pydub==0.25.1
 audioop-lts==0.2.2; python_version >= "3.13"
-litellm==1.86.2
+litellm==1.86.2; python_version < "3.14"
+litellm==1.106.0; python_version >= "3.14"  # 1.86.2 chưa hỗ trợ Python 3.14
 pyTelegramBotAPI==4.29.1  # chỉ cần cho telegram_bot.py
 playwright==1.55.0  # đăng video lên Facebook/TikTok/YouTube qua CDP (dùng Chrome/Edge có sẵn)

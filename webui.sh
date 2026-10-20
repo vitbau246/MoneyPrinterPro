@@ -16,20 +16,39 @@ export PYTHONPATH="$CURRENT_DIR${PYTHONPATH:+:$PYTHONPATH}"
 MPT_WEBUI_HOST="${MPT_WEBUI_HOST:-127.0.0.1}"
 MPT_WEBUI_PORT="${MPT_WEBUI_PORT:-8501}"
 
-if [ -x "$CURRENT_DIR/.venv/bin/python" ]; then
-  set -- "$CURRENT_DIR/.venv/bin/python" -m streamlit
-  find_port() { find_available_port "$CURRENT_DIR/.venv/bin/python"; }
-elif command -v uv >/dev/null 2>&1; then
-  set -- uv run streamlit
-  find_port() { find_available_port uv run python; }
-elif command -v streamlit >/dev/null 2>&1; then
-  echo "***** Warning: using streamlit from PATH. If dependencies fail, run 'uv sync --frozen' first. *****"
-  set -- streamlit
-  find_port() { find_available_port python3; }
-else
-  echo "***** Neither project Python, uv, nor streamlit was found. Please install dependencies first. *****"
-  exit 1
+# Tự tạo .venv (Python 3.11+) và cài thư viện lần đầu / khi requirements.txt thay đổi,
+# giống scripts/env.bat trên Windows.
+PYTHON="$CURRENT_DIR/.venv/bin/python"
+if [ ! -x "$PYTHON" ]; then
+  BASE_PYTHON=""
+  for candidate in python3 python3.14 python3.13 python3.12 python3.11; do
+    if command -v "$candidate" >/dev/null 2>&1       && "$candidate" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)'; then
+      BASE_PYTHON="$candidate"
+      break
+    fi
+  done
+  if [ -z "$BASE_PYTHON" ]; then
+    echo "***** Python 3.11+ was not found. Install Python 3.11 and run this script again. *****"
+    exit 1
+  fi
+  echo "***** Creating .venv with $BASE_PYTHON *****"
+  "$BASE_PYTHON" -m venv "$CURRENT_DIR/.venv" || exit 1
 fi
+
+STAMP="$CURRENT_DIR/.venv/mpt-requirements.installed"
+if ! cmp -s "$CURRENT_DIR/requirements.txt" "$STAMP"; then
+  echo "***** Installing Python packages from requirements.txt *****"
+  "$PYTHON" -m pip install -r "$CURRENT_DIR/requirements.txt" || exit 1
+  cp "$CURRENT_DIR/requirements.txt" "$STAMP"
+fi
+
+if [ ! -f "$CURRENT_DIR/config.toml" ] && [ -f "$CURRENT_DIR/config.example.toml" ]; then
+  cp "$CURRENT_DIR/config.example.toml" "$CURRENT_DIR/config.toml"
+fi
+
+export PYTHONIOENCODING=utf-8
+set -- "$PYTHON" -m streamlit
+find_port() { find_available_port "$PYTHON"; }
 
 find_available_port() {
   WEBUI_HOST="$MPT_WEBUI_HOST" WEBUI_PORT="$MPT_WEBUI_PORT" "$@" - <<'PY' 2>/dev/null

@@ -11,11 +11,19 @@ Tạo video ngắn tự động (kịch bản, lồng tiếng, phụ đề, tư 
 
 | Thành phần | Chạy bằng | Ghi chú |
 | --- | --- | --- |
-| WebUI | `start.bat` / `webui.bat` / `webui.sh` | Hai chế độ: **Tạo nhanh** (giống bot) và **Tuỳ chỉnh chi tiết** |
+| WebUI | `start.bat` (kèm bot) / `webui.bat` / `webui.sh` | Hai chế độ: **Tạo nhanh** (giống bot) và **Tuỳ chỉnh chi tiết** |
 | Bot Telegram | `telegram_bot.bat` / `python telegram_bot.py` | `start.bat` tự mở bot nếu đã có `bot_token` |
-| Tạo hàng loạt từ file | `python telegram_batch.py` | Gửi kết quả qua Telegram, chạy tiếp được khi bị ngắt |
+| Tạo hàng loạt từ file | `telegram_batch.bat` / `python telegram_batch.py` | Gửi kết quả qua Telegram, chạy tiếp được khi bị ngắt |
 | API | `api.bat` / `python main.py` | http://127.0.0.1:8080/docs |
 | CLI | `python cli.py --help` | Tạo video không cần trình duyệt |
+
+Các file `.bat` dùng chung `scripts\env.bat`. File này tự làm mọi bước chuẩn bị nên không cần cài tay:
+
+- tìm Python: `lib\python` của bản portable, rồi `.venv`; chưa có thì tự tạo `.venv` từ Python 3.11 trở lên
+  (`py -3`, `python3` hoặc `python`, kể cả 3.14);
+- cài thư viện lần đầu và mỗi khi `requirements.txt` thay đổi;
+- tạo `config.toml` từ `config.example.toml` nếu chưa có;
+- dùng FFmpeg đi kèm bản portable.
 
 WebUI (chế độ Tạo nhanh) và bot dùng chung một phần xử lý (`app/services/quick_create.py`), chung thư
 mục thành phẩm và chung lịch đăng bài.
@@ -23,7 +31,7 @@ mục thành phẩm và chung lịch đăng bài.
 ## Yêu cầu
 
 - Windows 10 trở lên. Bản portable đã kèm Python 3.11 (`lib/python`) và FFmpeg (`lib/ffmpeg`).
-  Chạy từ mã nguồn (Windows/macOS/Linux) cần Python 3.11+ và FFmpeg.
+  Chạy từ mã nguồn (Windows/macOS/Linux) chỉ cần cài sẵn Python 3.11 trở lên.
 - Đường dẫn thư mục **không dấu, không khoảng trắng, không ký tự đặc biệt**
   (ví dụ `D:\MoneyPrinterPro`).
 - Khuyến nghị CPU 4–8 nhân, RAM 8 GB. GPU không bắt buộc.
@@ -48,42 +56,35 @@ MoneyPrinterTurbo-Portable-Windows\
 ├─ start.bat          mở WebUI (+ bot Telegram nếu đã cấu hình)
 ├─ telegram_bot.bat   chỉ mở bot
 ├─ api.bat            mở API
-└─ update.bat         cài/cập nhật thư viện Python (không tải mã nguồn mới)
+└─ update.bat         cài lại thư viện Python (không tải mã nguồn mới)
 ```
 
-Các file `.bat` và `readme.txt` ở thư mục ngoài được lưu trong repo tại `portable/`. Khi dựng lại bản
-portable, chép chúng ra thư mục ngoài, cạnh `lib\` và `MoneyPrinterTurbo\` (chúng tìm `lib\` và mã nguồn
-theo vị trí của chính file).
+Các file `.bat` ở thư mục ngoài chỉ là lối tắt gọi file cùng tên trong `MoneyPrinterTurbo\`. Chúng được
+lưu trong repo tại `portable/` và được tự tạo/cập nhật mỗi lần chạy, không cần chép tay. Nếu mới chỉ có
+`lib\` và mã nguồn, chạy `MoneyPrinterTurbo\start.bat` một lần là các lối tắt xuất hiện.
 
 1. Đặt thư mục vào một đường dẫn không dấu, không khoảng trắng.
-2. Chạy `update.bat` một lần để cài đủ thư viện trong `requirements.txt`
-   (gồm `pyTelegramBotAPI` và `playwright`).
-3. Chạy `start.bat`. Lần đầu, `config.toml` được tạo từ `config.example.toml`.
-4. Mở http://127.0.0.1:8501 (nếu cổng bận, `start.bat` tự chọn cổng 8502–8599 và in ra địa chỉ),
+2. Chạy `start.bat`. Lần đầu sẽ tự cài thư viện (vài phút) và tạo `config.toml`.
+3. Mở http://127.0.0.1:8501 (nếu cổng bận, `start.bat` tự chọn cổng 8502–8599 và in ra địa chỉ),
    vào **Cài đặt** nhập khoá LLM và khoá Pexels/Pixabay.
-5. Muốn dùng bot: điền mục `[telegram]` trong `config.toml` (xem bên dưới) rồi chạy lại `start.bat`.
+4. Muốn dùng bot: điền mục `[telegram]` trong `config.toml` (xem bên dưới) rồi chạy lại `start.bat`.
 
 ### Chạy từ mã nguồn
+
+Cần cài sẵn Python 3.11 trở lên (đã kiểm tra bộ thư viện cài được trên 3.11, 3.13 và 3.14).
 
 ```shell
 git clone https://github.com/vitbau246/MoneyPrinterPro.git
 cd MoneyPrinterPro
-python3.11 -m venv .venv
-# Windows: .venv\Scripts\activate    macOS/Linux: source .venv/bin/activate
-pip install -r requirements.txt
+start.bat                          # Windows: tự tạo .venv, cài thư viện, mở WebUI (+ bot nếu có bot_token)
+sh webui.sh                        # macOS/Linux: tự tạo .venv, cài thư viện, mở WebUI
+.venv/bin/python telegram_bot.py   # macOS/Linux: bot Telegram, chạy ở cửa sổ khác
 ```
 
-Dùng `requirements.txt` (không dùng `uv sync`): bot Telegram và phần đăng bài cần `pyTelegramBotAPI`
-và `playwright`, chỉ có trong file này. Playwright điều khiển Chrome/Edge có sẵn nên **không** cần
-`playwright install`.
-
-```shell
-webui.bat                 # Windows (hoặc: sh webui.sh)
-python telegram_bot.py    # bot Telegram, chạy ở cửa sổ khác
-python main.py            # API, nếu cần
-```
-
-Nếu báo không tìm thấy FFmpeg, cài FFmpeg rồi đặt `ffmpeg_path` trong `[app]` của `config.toml`.
+Thư viện lấy từ `requirements.txt` (không dùng `uv sync`): bot Telegram và phần đăng bài cần
+`pyTelegramBotAPI` và `playwright`, chỉ có trong file này. Playwright điều khiển Chrome/Edge có sẵn nên
+**không** cần `playwright install`. FFmpeg đi kèm thư viện `imageio-ffmpeg`; muốn dùng bản khác thì
+đặt `ffmpeg_path` trong `[app]` của `config.toml`.
 
 ### Docker (tuỳ chọn)
 
@@ -227,7 +228,8 @@ python telegram_batch.py --preset dongluc --topics storage/batch/dongluc.txt [--
 
 Mỗi dòng của file là một chủ đề (dòng trống và dòng bắt đầu bằng `#` bị bỏ qua). Tiến độ lưu ở
 `<file>.progress.json`, chạy lại lệnh để tiếp tục; tạo file `<file>.stop` để dừng sau mục đang chạy.
-Các file `telegram_batch_*.bat` ở thư mục portable là ví dụ sẵn.
+Trên Windows dùng `telegram_batch.bat` với cùng tham số, ví dụ
+`telegram_batch.bat --preset dongluc --topics storage\batch\dongluc.txt`.
 
 ## Thư mục dữ liệu
 
