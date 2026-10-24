@@ -10,7 +10,7 @@ if not defined MPT_WEBUI_HOST set "MPT_WEBUI_HOST=127.0.0.1"
 if not defined MPT_WEBUI_PORT set "MPT_WEBUI_PORT=8501"
 
 set "SELECTED_WEBUI_PORT="
-for /f %%P in ('powershell -NoProfile -ExecutionPolicy Bypass -Command "$hostAddress=$null; foreach ($address in [Net.Dns]::GetHostAddresses($env:MPT_WEBUI_HOST)) { if ($address.AddressFamily -eq [Net.Sockets.AddressFamily]::InterNetwork) { $hostAddress=$address; break } }; if ($null -eq $hostAddress) { exit 1 }; $preferred=[int]$env:MPT_WEBUI_PORT; $candidates=New-Object System.Collections.Generic.List[int]; $candidates.Add($preferred); foreach ($candidate in 8502..8599) { if ($candidate -ne $preferred) { $candidates.Add($candidate) } }; foreach ($port in $candidates) { $socket=[Net.Sockets.Socket]::new([Net.Sockets.AddressFamily]::InterNetwork,[Net.Sockets.SocketType]::Stream,[Net.Sockets.ProtocolType]::Tcp); try { $socket.Bind([Net.IPEndPoint]::new($hostAddress,$port)); $socket.Close(); Write-Output $port; exit 0 } catch { try { $socket.Close() } catch {} } }; exit 1"') do set "SELECTED_WEBUI_PORT=%%P"
+for /f %%P in ('call "%PYTHON%" -I "%PROJECT_DIR%\scripts\find_port.py"') do set "SELECTED_WEBUI_PORT=%%P"
 
 if not defined SELECTED_WEBUI_PORT (
     echo ***** No available WebUI port found in 8501-8599 for %MPT_WEBUI_HOST%. *****
