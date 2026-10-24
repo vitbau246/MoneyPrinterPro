@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import io
+import importlib
 import inspect
 import json
 import math
@@ -9,6 +10,7 @@ import queue
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -1341,6 +1343,66 @@ def stream_edge_tts_chunks(
         loop.close()
 
 
+_edge_tts_upgrade_lock = threading.Lock()
+_edge_tts_upgrade_attempted = False
+
+
+def _is_edge_tts_auth_error(exc: Exception) -> bool:
+    """Edge TTS 返回 403 通常是 Sec-MS-GEC 协议变更，旧版 edge-tts 会被拒绝。"""
+
+    if getattr(exc, "status", None) == 403:
+        return True
+    return "403" in str(exc) and "handshake" in type(exc).__name__.lower()
+
+
+def _upgrade_edge_tts() -> bool:
+    """
+    升级 edge-tts 并在当前进程内重新加载，无需重启服务。
+
+    每个进程只尝试一次，避免网络不通时每次合成都重复执行 pip。
+    """
+    global edge_tts, SubMaker, _edge_tts_upgrade_attempted
+
+    with _edge_tts_upgrade_lock:
+        if _edge_tts_upgrade_attempted:
+            return False
+        _edge_tts_upgrade_attempted = True
+
+        old_version = getattr(edge_tts, "__version__", "unknown")
+        logger.warning(
+            f"edge_tts rejected with 403, upgrading edge-tts (current: {old_version})"
+        )
+        try:
+            result = subprocess.run(
+                [sys.executable, "-m", "pip", "install", "-U", "edge-tts"],
+                capture_output=True,
+                text=True,
+                timeout=180,
+            )
+        except Exception as e:
+            logger.error(f"failed to run pip upgrade for edge-tts: {str(e)}")
+            return False
+        if result.returncode != 0:
+            logger.error(f"pip upgrade edge-tts failed: {result.stderr[-500:]}")
+            return False
+
+        try:
+            for name in [m for m in sys.modules if m == "edge_tts" or m.startswith("edge_tts.")]:
+                del sys.modules[name]
+            importlib.invalidate_caches()
+            edge_tts = importlib.import_module("edge_tts")
+            SubMaker = edge_tts.SubMaker
+        except Exception as e:
+            logger.error(f"failed to reload edge_tts after upgrade: {str(e)}")
+            return False
+
+        logger.info(
+            f"edge-tts upgraded: {old_version} -> "
+            f"{getattr(edge_tts, '__version__', 'unknown')}"
+        )
+        return True
+
+
 def azure_tts_v1(
     text: str, voice_name: str, voice_rate: float, voice_file: str
 ) -> Union[SubMaker, None]:
@@ -1349,6 +1411,7 @@ def azure_tts_v1(
     rate_str = convert_rate_to_percent(voice_rate)
     # 每个代理各重试 3 次，失败后轮换到下一个代理。
     attempts = [(proxy, i) for proxy in _get_edge_tts_proxies() for i in range(3)]
+    upgraded = False
     for proxy, i in attempts:
         try:
             logger.info(
@@ -1389,6 +1452,13 @@ def azure_tts_v1(
             return sub_maker
         except Exception as e:
             logger.error(f"failed, error: {str(e)}")
+            if not upgraded and _is_edge_tts_auth_error(e):
+                upgraded = True
+                if _upgrade_edge_tts():
+                    # 升级成功后用新版本再试一次（本次不计入重试次数）。
+                    result = azure_tts_v1(text, voice_name, voice_rate, voice_file)
+                    if result is not None:
+                        return result
             # TTS 流式写入如果在首包前超时或网络异常，会留下 0 字节音频文件。
             # 这种文件既不可播放，也可能误导后续排查，因此失败后只清理空文件；
             # 如果已经写入了部分数据，则保留现场文件，便于分析服务端返回内容。
