@@ -500,6 +500,12 @@ def _render_batch_status(jobs: qj.QuickJobs, batch: qj.Batch) -> None:
         st.markdown("  \n".join(lines))
         if total:
             st.progress(min(done / total, 1.0))
+        if batch.failed and st.button(
+            f"🔁 Tạo lại {len(batch.failed)} {batch.unit} lỗi",
+            key=f"quick_retry_all_{batch.id}",
+        ):
+            jobs.retry_failed(batch.id)
+            st.rerun(scope="app")
         if batch.state == qj.BATCH_RUNNING and not batch.stopped:
             st.button(
                 f"⏹ Dừng sau {batch.unit} đang tạo",
@@ -537,7 +543,7 @@ def _render_result(job: qj.Job) -> None:
         st.code(job.script or "(không có)", language=None, wrap_lines=True)
 
 
-def _render_job(job: qj.Job) -> None:
+def _render_job(jobs: qj.QuickJobs, job: qj.Job) -> None:
     preset = job.preset
     number = f"[{job.number}] " if job.batch_id else ""
     details = [
@@ -565,6 +571,9 @@ def _render_job(job: qj.Job) -> None:
                 st.caption(job.stage or "Đang tạo...")
         elif job.state == qj.FAILED:
             st.error(job.error[:2000])
+            if st.button("🔁 Tạo lại", key=f"quick_retry_{job.id}"):
+                jobs.retry_job(job.id)
+                st.rerun(scope="app")
         elif job.state == qj.SKIPPED:
             st.caption(job.stage)
         elif job.state == qj.DONE:
@@ -589,7 +598,7 @@ def _queue_body(jobs: qj.QuickJobs) -> None:
         st.info("Chưa có yêu cầu nào. Thành phẩm cũ xem ở tab Thư viện thành phẩm.")
         return
     for job in all_jobs[:MAX_SHOWN_JOBS]:
-        _render_job(job)
+        _render_job(jobs, job)
     if any(not job.active for job in all_jobs):
         st.button(
             "Xoá các mục đã xong khỏi danh sách",

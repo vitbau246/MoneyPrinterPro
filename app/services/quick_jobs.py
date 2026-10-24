@@ -83,6 +83,8 @@ class Job:
     keyword: str = ""
     script: str = ""
     schedule_note: str = ""
+    # Tạo lại thủ công một mục lỗi: không xếp tiếp mục kế của loạt (chuỗi gốc đã lo).
+    retry: bool = False
 
     @property
     def preset(self) -> cp.ContentPreset:
@@ -209,6 +211,43 @@ class QuickJobs:
         else:
             self._enqueue(job)
         return job
+
+    def retry_job(self, job_id: str) -> bool:
+        """
+        Tạo lại một mục đã lỗi (yêu cầu lẻ hoặc mục trong loạt). Mục trong loạt đã kết
+        thúc thì mở lại loạt để thống kê thành công/lỗi cập nhật. Trả về True nếu đã xếp.
+        """
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is None or job.state != FAILED:
+                return False
+            batch = self._batches.get(job.batch_id) if job.batch_id else None
+            if batch:
+                if job.number in batch.failed:
+                    batch.failed.remove(job.number)
+                if batch.state == FINISHED:
+                    batch.state = BATCH_RUNNING
+                    batch.finished = 0.0
+            job.state, job.error, job.stage, job.progress = QUEUED, "", "", 0
+            job.started = job.finished = 0.0
+            job.retry = True
+        logger.info(f"retrying failed job {job.id} (batch item {job.number}): {job.title}")
+        if job.kind == GIF and batch is None:
+            threading.Thread(target=self._run_standalone_gif, args=(job,), daemon=True).start()
+        else:
+            self._enqueue(job)
+        return True
+
+    def retry_failed(self, batch_id: str) -> int:
+        """Tạo lại mọi mục lỗi của một loạt; trả về số mục đã xếp."""
+        with self._lock:
+            batch = self._batches.get(batch_id)
+            ids = [
+                job_id
+                for job_id in (batch.job_ids if batch else [])
+                if job_id in self._jobs and self._jobs[job_id].state == FAILED
+            ]
+        return sum(1 for job_id in ids if self.retry_job(job_id))
 
     def remove_finished(self) -> None:
         """Xoá các yêu cầu đã xong khỏi danh sách (thành phẩm vẫn giữ nguyên)."""
@@ -399,7 +438,7 @@ class QuickJobs:
             batch = self._batches.get(job.batch_id) if job and job.batch_id else None
             if job is None:
                 return
-            if batch and batch.stopped:
+            if batch and batch.stopped and not job.retry:
                 job.state = SKIPPED
                 job.stage = "Đã bỏ vì loạt đã dừng."
                 job.finished = time.time()
@@ -414,7 +453,7 @@ class QuickJobs:
                     with self._lock:
                         job.state, job.error, job.progress = RUNNING, "", 0
                 ok = self._run_gif(job, batch) if job.kind == GIF else self._run_video(job)
-                if ok or (batch and batch.stopped):
+                if ok or (batch and batch.stopped and not job.retry):
                     break
             if batch:
                 with self._lock:
@@ -422,8 +461,21 @@ class QuickJobs:
                         batch.sent += 1
                     else:
                         batch.failed.append(job.number)
-        if batch:
+        if batch and job.retry:
+            job.retry = False
+            self._finish_if_idle(batch)
+        elif batch:
             self._continue_batch(batch)
+
+    def _finish_if_idle(self, batch: Batch) -> None:
+        """Sau khi tạo lại mục lỗi: loạt đã hết mục và không còn mục nào chạy thì kết thúc."""
+        with self._lock:
+            busy = any(
+                self._jobs[job_id].active for job_id in batch.job_ids if job_id in self._jobs
+            )
+            idle = not busy and (batch.stopped or batch.next_index >= len(batch.topics))
+        if idle:
+            self._finish_batch(batch)
 
     def _set(self, job: Job, **values) -> None:
         with self._lock:

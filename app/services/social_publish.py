@@ -318,6 +318,42 @@ _TT_HASHTAG = re.compile(r"(#[^\s#]+)")
 TIKTOK_SUGGESTION_SECONDS = 10
 
 
+_TT_POPUP_TEXT = re.compile(r"(automatic content checks|kiểm tra nội dung tự động)", re.I)
+
+
+def _dismiss_tiktok_popups(page) -> bool:
+    """
+    Đóng hộp thoại/popover TikTok Studio tự hiện (snapshot lỗi: "Turn on automatic content
+    checks?" và "New editing features added") vì chúng chặn mọi cú bấm vào ô mô tả và nút
+    Đăng. Chọn Cancel chứ không Turn on để không đổi cài đặt tài khoản. Trả về True nếu
+    đã đóng ít nhất một cái.
+    """
+    closed = False
+    try:
+        dialogs = page.locator("[role=dialog], .TUXModal, .tiktok-modal, [class*=Modal]").filter(
+            has_text=_TT_POPUP_TEXT
+        )
+        if dialogs.count() and dialogs.first.is_visible():
+            dialog = dialogs.first
+            cancel = dialog.get_by_role("button", name=_names("Cancel", "Hủy", "Huỷ"))
+            if cancel.count() and cancel.first.is_visible():
+                cancel.first.click()
+            else:
+                dialog.locator("[aria-label=Close], [aria-label=Đóng], button:has(svg)").first.click()
+            closed = True
+            page.wait_for_timeout(500)
+        got_it = page.get_by_role("button", name=_names("Got it", "Đã hiểu", "Hiểu rồi", "OK"))
+        if got_it.count() and got_it.first.is_visible():
+            got_it.first.click()
+            closed = True
+            page.wait_for_timeout(300)
+    except Exception as exc:
+        logger.debug(f"tiktok popup dismiss skipped: {exc}")
+    if closed:
+        logger.info("tiktok: dismissed popup that was blocking the page")
+    return closed
+
+
 def _tiktok_hashtag(page, tag: str) -> bool:
     """
     Nhập hashtag thành link: TikTok chỉ tạo hashtag thật khi chọn từ danh sách gợi ý
@@ -333,6 +369,7 @@ def _tiktok_hashtag(page, tag: str) -> bool:
     items = page.locator(".mention-list-popover .hashtag-suggestion-item")
     deadline = time.monotonic() + TIKTOK_SUGGESTION_SECONDS
     while time.monotonic() < deadline:
+        _dismiss_tiktok_popups(page)
         try:
             for index in range(items.count()):
                 item = items.nth(index)
@@ -362,6 +399,7 @@ def _fill_tiktok_caption(page, editor, text: str, video: str) -> None:
         pass
     page.wait_for_timeout(1500)
     for attempt in range(3):
+        _dismiss_tiktok_popups(page)
         editor.click()
         page.keyboard.press("Control+A")
         page.keyboard.press("Backspace")
@@ -414,19 +452,32 @@ def _tiktok(page, content: Content, dry_run: bool, expected: social_accounts.Acc
 
     editor = page.locator("div.public-DraftEditor-content[contenteditable=true], div[contenteditable=true]").first
     editor.wait_for(state="visible", timeout=UPLOAD_TIMEOUT_MS)
+    _dismiss_tiktok_popups(page)
     _fill_tiktok_caption(page, editor, content.full_text(TIKTOK_CAPTION_LIMIT), content.video)
 
     post = page.locator("button[data-e2e=post_video_button]")
     if not post.count():
         post = page.get_by_role("button", name=_names("Post", "Đăng"))
-    _wait_until(lambda: _enabled(post), UPLOAD_TIMEOUT_MS, "TikTok tải video lên")
+    def ready() -> bool:
+        _dismiss_tiktok_popups(page)
+        return _enabled(post)
+
+    _wait_until(ready, UPLOAD_TIMEOUT_MS, "TikTok tải video lên")
+    _dismiss_tiktok_popups(page)
     if dry_run:
         return Outcome(dry_run=True)
     post.first.click()
     confirm = page.get_by_role("button", name=_names("Post now", "Đăng ngay", "Tiếp tục đăng"))
 
+    reclicks = 0
+
     def posted() -> bool:
+        nonlocal reclicks
         _click_if_visible(confirm)
+        # Hộp thoại kiểm tra nội dung có thể chặn cú bấm Đăng đầu tiên: đóng rồi bấm lại.
+        if _dismiss_tiktok_popups(page) and reclicks < 2 and _enabled(post):
+            reclicks += 1
+            post.first.click()
         return "/tiktokstudio/content" in page.url or bool(
             _TT_DONE.search(page.locator("body").inner_text())
         )
